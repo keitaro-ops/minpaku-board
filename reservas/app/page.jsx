@@ -22,6 +22,13 @@ const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const dayDiff = (a, b) => Math.round((startOfDay(a) - startOfDay(b)) / DAY_MS);
 const fmtMD = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
 const uid = () => Math.random().toString(36).slice(2, 9);
+const mapRows = (rows) => rows.map((x, i) => ({
+  ...x, id: i,
+  info_submitted: !!x.info_submitted,
+  cleaning_status: x.cleaning_status || "unrequested",
+  cleaning_memo: x.cleaning_memo || "",
+  ci: parseDate(x.check_in), co: parseDate(x.check_out),
+}));
 
 // 各自ブラウザ保存（端末ごとの個人設定）
 const LS = {
@@ -73,15 +80,15 @@ export default function Dashboard() {
     const r = await fetch("/api/reservations");
     if (r.status === 401) { window.location.href = "/login"; return; }
     const j = await r.json();
-    setData(j.reservations.map((x, i) => ({
-      ...x, id: i,
-      info_submitted: !!x.info_submitted,
-      cleaning_status: x.cleaning_status || "unrequested",
-      cleaning_memo: x.cleaning_memo || "",
-      ci: parseDate(x.check_in), co: parseDate(x.check_out),
-    })));
+    const rows = j.reservations || [];
+    setData(mapRows(rows));
+    try { localStorage.setItem("mb_resv_cache", JSON.stringify(rows)); } catch {}
   }
-  useEffect(() => { load(); }, []);
+  // 直近データを即表示（真っ白な待ちを減らす）→ 裏で最新取得
+  useEffect(() => {
+    try { const c = localStorage.getItem("mb_resv_cache"); if (c) setData(mapRows(JSON.parse(c))); } catch {}
+    load();
+  }, []);
   // 自動更新：3分ごと＋タブ復帰時
   useEffect(() => {
     const t = setInterval(() => load(), 180000);

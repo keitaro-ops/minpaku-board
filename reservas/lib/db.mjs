@@ -5,15 +5,15 @@ export function db() {
   if (!_sql) {
     _sql = postgres(process.env.DATABASE_URL, {
       ssl: "require",
-      max: 3,
+      max: 1,               // サーバーレスはプーラー枯渇を避けるため接続を絞る
       idle_timeout: 20,
-      prepare: false,
+      connect_timeout: 10,
+      prepare: false,       // Supabase transaction pooler 対応
     });
   }
   return _sql;
 }
 
-// パスワード → Cookie 用トークン（Web Crypto / node・edge 両対応）
 export async function authToken(password) {
   const data = new TextEncoder().encode(`${password}::${process.env.APP_SECRET || ""}`);
   const buf = await globalThis.crypto.subtle.digest("SHA-256", data);
