@@ -37,6 +37,9 @@ export default function Dashboard() {
   const [showBlocks, setShowBlocks] = useState(true);
   const [needInfoOnly, setNeedInfoOnly] = useState(false);
   const [needCleanOnly, setNeedCleanOnly] = useState(false);
+  const [cleanFilter, setCleanFilter] = useState("");
+  const [showCleanLabel, setShowCleanLabel] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(null);
   const [sort, setSort] = useState({ key: "check_in", dir: 1 });
@@ -58,11 +61,13 @@ export default function Dashboard() {
     setTags(LS.get("tags", []));
     setPropTags(LS.get("propTags", {}));
     setGroupByTag(LS.get("groupByTag", false));
+    setShowCleanLabel(LS.get("showCleanLabel", false));
   }, []);
   const saveOrder = (v) => { setOrder(v); LS.set("order", v); };
   const saveTags = (v) => { setTags(v); LS.set("tags", v); };
   const savePropTags = (v) => { setPropTags(v); LS.set("propTags", v); };
   const toggleGroup = () => { const v = !groupByTag; setGroupByTag(v); LS.set("groupByTag", v); };
+  const toggleCleanLabel = () => { const v = !showCleanLabel; setShowCleanLabel(v); LS.set("showCleanLabel", v); };
 
   async function load() {
     const r = await fetch("/api/reservations");
@@ -83,6 +88,12 @@ export default function Dashboard() {
     const onFocus = () => load();
     window.addEventListener("focus", onFocus);
     return () => { clearInterval(t); window.removeEventListener("focus", onFocus); };
+  }, []);
+  // スマホ判定（列幅を詰める）
+  useEffect(() => {
+    const f = () => setIsMobile(window.innerWidth <= 820);
+    f(); window.addEventListener("resize", f);
+    return () => window.removeEventListener("resize", f);
   }, []);
 
   async function manualSync() {
@@ -136,10 +147,22 @@ export default function Dashboard() {
       if (r.type === "block" && !showBlocks) return false;
       if (needInfoOnly && (r.type !== "booking" || r.info_submitted)) return false;
       if (needCleanOnly && (r.type !== "booking" || r.cleaning_status !== "unrequested")) return false;
+      if (cleanFilter) {
+        if (r.type !== "booking") return false;
+        if (cleanFilter.startsWith("status:") && r.cleaning_status !== cleanFilter.slice(7)) return false;
+        if (cleanFilter.startsWith("memo:") && (r.cleaning_memo || "") !== cleanFilter.slice(5)) return false;
+      }
       if (s && !`${r.property_name} ${r.area || ""}`.toLowerCase().includes(s)) return false;
       return true;
     });
-  }, [data, plat, showBlocks, needInfoOnly, needCleanOnly, q]);
+  }, [data, plat, showBlocks, needInfoOnly, needCleanOnly, cleanFilter, q]);
+
+  const memoOptions = useMemo(() => {
+    if (!data) return [];
+    const set = new Set();
+    data.forEach((r) => { if (r.type === "booking" && r.cleaning_memo) set.add(r.cleaning_memo); });
+    return [...set].sort();
+  }, [data]);
 
   const stats = useMemo(() => {
     const mStart = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -189,6 +212,8 @@ export default function Dashboard() {
 
   if (!data) return <div style={{ padding: 40, color: "#667085" }}>読み込み中…</div>;
   const tagOf = (name) => tags.find((t) => t.id === propTags[name]);
+  const dayW = isMobile ? 34 : 46;
+  const nameW = isMobile ? 124 : 220;
 
   return (
     <div className="app">
@@ -225,6 +250,20 @@ export default function Dashboard() {
             <label className="flt"><input type="checkbox" checked={showBlocks} onChange={() => setShowBlocks((v) => !v)} />ブロックも表示</label>
             <label className="flt"><input type="checkbox" checked={needInfoOnly} onChange={() => setNeedInfoOnly((v) => !v)} />事前情報 未提出のみ</label>
             <label className="flt"><input type="checkbox" checked={needCleanOnly} onChange={() => setNeedCleanOnly((v) => !v)} />清掃 未依頼のみ</label>
+          </FilterGroup>
+          <FilterGroup title="清掃 表示">
+            <label className="flt"><input type="checkbox" checked={showCleanLabel} onChange={toggleCleanLabel} />バーに清掃メモを表示</label>
+            <select className="selc" value={cleanFilter} onChange={(e) => setCleanFilter(e.target.value)}>
+              <option value="">清掃で絞り込み：すべて</option>
+              <option value="status:inhouse">自社清掃のみ</option>
+              <option value="status:requested">依頼済みのみ</option>
+              <option value="status:unrequested">未依頼のみ</option>
+              {memoOptions.length > 0 && (
+                <optgroup label="依頼先で絞り込み">
+                  {memoOptions.map((m) => <option key={m} value={"memo:" + m}>{m}</option>)}
+                </optgroup>
+              )}
+            </select>
           </FilterGroup>
           <FilterGroup title="並び替え（自分用）">
             <label className="flt"><input type="checkbox" checked={groupByTag} onChange={toggleGroup} />タグごとにまとめる</label>
@@ -271,7 +310,7 @@ export default function Dashboard() {
             <div className="empty">まだ予約がありません。「物件・iCal設定」でURLを登録し「今すぐ同期」を押してください。</div>
           ) : view === "timeline" ? (
             <Timeline days={days} props={props} rows={filtered} today={today} onSel={setSel}
-              tagOf={tagOf} dragName={dragName} onDrop={onDrop} canDrag={!groupByTag} />
+              tagOf={tagOf} dragName={dragName} onDrop={onDrop} canDrag={!groupByTag} showCleanLabel={showCleanLabel} dayW={dayW} nameW={nameW} />
           ) : (
             <ListView rows={listRows} sort={sort} onSort={toggleSort} onSel={setSel} />
           )}
@@ -285,8 +324,8 @@ export default function Dashboard() {
   );
 }
 
-function Timeline({ days, props, rows, today, onSel, tagOf, dragName, onDrop, canDrag }) {
-  const gridW = days.length * DAY_W;
+function Timeline({ days, props, rows, today, onSel, tagOf, dragName, onDrop, canDrag, showCleanLabel, dayW, nameW }) {
+  const gridW = days.length * dayW;
   const todayIdx = dayDiff(today, days[0]);
   // 月の区切り
   const months = [];
@@ -299,13 +338,13 @@ function Timeline({ days, props, rows, today, onSel, tagOf, dragName, onDrop, ca
   return (
     <div className="tl-wrap">
       <div className="tl-scroll">
-        <div style={{ minWidth: 220 + gridW }}>
+        <div style={{ minWidth: nameW + gridW }}>
           <div className="tl-head">
-            <div className="tl-corner">物件</div>
+            <div className="tl-corner" style={{ width: nameW, flex: `0 0 ${nameW}px` }}>物件</div>
             <div style={{ width: gridW }}>
               <div className="tl-months">
                 {months.map((mo, i) => (
-                  <div key={i} className="tl-mseg" style={{ width: mo.count * DAY_W }}>
+                  <div key={i} className="tl-mseg" style={{ width: mo.count * dayW }}>
                     {i === 0 || mo.m === 1 ? `${mo.y}年${mo.m}月` : `${mo.m}月`}
                   </div>
                 ))}
@@ -315,7 +354,7 @@ function Timeline({ days, props, rows, today, onSel, tagOf, dragName, onDrop, ca
                   const wknd = d.getDay() === 0 || d.getDay() === 6;
                   const isToday = dayDiff(d, today) === 0;
                   return (
-                    <div key={i} className={"tl-day" + (wknd ? " wknd" : "") + (isToday ? " today" : "")} style={{ width: DAY_W }}>
+                    <div key={i} className={"tl-day" + (wknd ? " wknd" : "") + (isToday ? " today" : "")} style={{ width: dayW }}>
                       <span className="wd">{WD[d.getDay()]}</span><span className="md mono">{d.getDate()}</span>
                     </div>
                   );
@@ -325,7 +364,7 @@ function Timeline({ days, props, rows, today, onSel, tagOf, dragName, onDrop, ca
           </div>
           <div style={{ position: "relative" }}>
             {todayIdx >= 0 && todayIdx < days.length && (
-              <div className="tl-nowline" style={{ left: 220 + todayIdx * DAY_W + DAY_W / 2 }} />
+              <div className="tl-nowline" style={{ left: nameW + todayIdx * dayW + dayW / 2 }} />
             )}
             {props.map((p) => {
               const rs = rows.filter((r) => r.property_name === p.name);
@@ -333,7 +372,7 @@ function Timeline({ days, props, rows, today, onSel, tagOf, dragName, onDrop, ca
               const tag = tagOf(p.name);
               return (
                 <div key={p.name} className="tl-row" style={{ height: ROW_H }}>
-                  <div className="tl-name" style={{ borderLeft: tag ? `4px solid ${tag.color}` : "4px solid transparent" }}
+                  <div className="tl-name" style={{ borderLeft: tag ? `4px solid ${tag.color}` : "4px solid transparent", width: nameW, flex: `0 0 ${nameW}px` }}
                     draggable={canDrag}
                     onDragStart={() => { dragName.current = p.name; }}
                     onDragOver={(e) => canDrag && e.preventDefault()}
@@ -345,13 +384,13 @@ function Timeline({ days, props, rows, today, onSel, tagOf, dragName, onDrop, ca
                   <div className="tl-lane" style={{ width: gridW }}>
                     {days.map((d, i) => {
                       const wknd = d.getDay() === 0 || d.getDay() === 6;
-                      return <div key={i} className={"cell" + (wknd ? " wknd" : "")} style={{ width: DAY_W }} />;
+                      return <div key={i} className={"cell" + (wknd ? " wknd" : "")} style={{ width: dayW }} />;
                     })}
                     {rs.map((r) => {
                       const off = dayDiff(r.ci, days[0]);
                       if (off + r.nights <= 0 || off >= days.length) return null;
-                      const left = off * DAY_W + DAY_W / 2 + 3;
-                      const width = r.nights * DAY_W - 6;
+                      const left = off * dayW + dayW / 2 + 3;
+                      const width = r.nights * dayW - 6;
                       const pf = PLATFORMS[r.platform] || PLATFORMS.airbnb;
                       const block = r.type === "block";
                       return (
@@ -361,7 +400,7 @@ function Timeline({ days, props, rows, today, onSel, tagOf, dragName, onDrop, ca
                           title={`${p.name} ${fmtMD(r.ci)}〜${fmtMD(r.co)}（${r.nights}泊）`}>
                           {!block && !r.info_submitted && <span className="dotm" style={{ background: "#F59E0B" }} />}
                           {!block && r.cleaning_status === "unrequested" && <span className="dotm" style={{ background: "#7C3AED" }} />}
-                          <span className="bar-lbl" style={{ color: block ? "#5A6472" : "#fff" }}>{block ? "ブロック" : r.nights + "泊"}</span>
+                          <span className="bar-lbl" style={{ color: block ? "#5A6472" : "#fff" }}>{block ? "ブロック" : (showCleanLabel ? (r.cleaning_memo || (CLEAN[r.cleaning_status] || {}).label || (r.nights + "泊")) : (r.nights + "泊"))}</span>
                         </button>
                       );
                     })}
@@ -543,6 +582,7 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .swatch.hatch { background:repeating-linear-gradient(45deg,#B6BECB,#B6BECB 3px,#fff 3px,#fff 6px); border:1px solid #C3CAD5; }
 .dotm { width:8px; height:8px; border-radius:50%; display:inline-block; flex:0 0 auto; }
 .hint2 { font-size:11px; color:#98A2B3; margin-top:6px; line-height:1.5; }
+.selc { width:100%; margin-top:8px; padding:8px 9px; border:1px solid #D8DDE5; border-radius:8px; font-size:12.5px; font-family:inherit; background:#fff; }
 .legend { border-top:1px solid #EDF0F4; padding-top:14px; margin-bottom:14px; }
 .lg-t { font-size:11px; font-weight:600; color:#8A94A6; text-transform:uppercase; margin-bottom:8px; }
 .lg-row { display:flex; align-items:center; gap:8px; font-size:12px; color:#475467; padding:3px 0; }
@@ -632,5 +672,22 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .tg-pn { font-size:13px; }
 .tg-row select { border:1px solid #D8DDE5; border-radius:8px; padding:6px 8px; font-size:12.5px; font-family:inherit; }
 .muted { color:#98A2B3; }
-@media (max-width:820px){ .body { flex-direction:column; } .side { width:100%; flex:none; min-height:0; border-right:0; border-bottom:1px solid #E3E7ED; } }
+@media (max-width:820px){
+  .body { flex-direction:column; }
+  .side { width:100%; flex:none; min-height:0; border-right:0; border-bottom:1px solid #E3E7ED; }
+  .hdr { padding:12px 14px; gap:12px; }
+  .hdr h1 { font-size:17px; }
+  .sub { font-size:11px; }
+  .stat { padding:6px 10px; border-radius:9px; }
+  .stat-v { font-size:14px; }
+  .stat-l { font-size:9.5px; }
+  .main { padding:12px 12px 30px; }
+  .tl-day .wd { font-size:9px; }
+  .tl-day .md { font-size:11px; }
+  .tl-mseg { font-size:10.5px; padding-left:6px; }
+  .tl-name .nm { font-size:11.5px; }
+  .cnt-badge { padding:1px 5px; font-size:10px; }
+  .bar-lbl { font-size:10px; }
+  .grip { display:none; }
+}
 `;
