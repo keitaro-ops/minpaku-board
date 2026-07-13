@@ -281,7 +281,7 @@ export default function Dashboard() {
             <label className="flt"><input type="checkbox" checked={needCleanOnly} onChange={() => setNeedCleanOnly((v) => !v)} />清掃 未依頼のみ</label>
           </FilterGroup>
           <FilterGroup title="清掃 表示">
-            <label className="flt"><input type="checkbox" checked={showCleanLabel} onChange={toggleCleanLabel} />バーに清掃メモを表示</label>
+            <label className="flt"><input type="checkbox" checked={showCleanLabel} onChange={toggleCleanLabel} />バーに清掃（自社/メモ）を表示</label>
             <select className="selc" value={cleanFilter} onChange={(e) => setCleanFilter(e.target.value)}>
               <option value="">清掃で絞り込み：すべて</option>
               <option value="status:inhouse">自社清掃のみ</option>
@@ -432,7 +432,14 @@ function Timeline({ days, props, rows, today, onSel, tagOf, dragName, onDrop, ca
                           title={`${p.name} ${fmtMD(r.ci)}〜${fmtMD(r.co)}（${r.nights}泊）`}>
                           {!block && !r.info_submitted && <span className="dotm" style={{ background: "#F59E0B" }} />}
                           {!block && r.cleaning_status === "unrequested" && <span className="dotm" style={{ background: "#7C3AED" }} />}
-                          <span className="bar-lbl" style={{ color: block ? "#5A6472" : "#fff" }}>{block ? "ブロック" : (showCleanLabel ? (r.cleaning_memo || (CLEAN[r.cleaning_status] || {}).label || (r.nights + "泊")) : (r.nights + "泊"))}</span>
+                          <span className="bar-lbl" style={{ color: block ? "#5A6472" : "#fff" }}>
+                            {block ? "ブロック" : (showCleanLabel ? (
+                              <>
+                                {r.cleaning_status === "inhouse" && <span className="inhouse-badge">自社</span>}
+                                <span className="clean-memo">{r.cleaning_memo || (r.cleaning_status === "inhouse" ? "" : (r.nights + "泊"))}</span>
+                              </>
+                            ) : (r.nights + "泊"))}
+                          </span>
                         </button>
                       );
                     })}
@@ -649,7 +656,7 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .count { margin-left:auto; font-size:12.5px; color:#667085; }
 .empty { background:#fff; border:1px dashed #C9D0DA; border-radius:12px; padding:40px 24px; text-align:center; color:#667085; font-size:14px; }
 .tl-wrap { background:#fff; border:1px solid #E3E7ED; border-radius:12px; overflow:hidden; }
-.tl-scroll { overflow-x:auto; }
+.tl-scroll { overflow:auto; max-height:calc(100vh - 160px); overscroll-behavior:contain; }
 .tl-head { display:flex; position:sticky; top:0; z-index:5; background:#fff; border-bottom:1px solid #E3E7ED; }
 .tl-corner { width:220px; flex:0 0 220px; padding:10px 14px; font-size:11px; font-weight:600; color:#8A94A6; text-transform:uppercase; position:sticky; left:0; background:#fff; z-index:6; border-right:1px solid #E3E7ED; display:flex; align-items:flex-end; }
 .tl-months { display:flex; border-bottom:1px solid #EDF0F4; }
@@ -673,7 +680,9 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .bar { position:absolute; border-radius:7px; border:1.5px solid transparent; display:flex; align-items:center; gap:3px; padding:0 7px; cursor:pointer; overflow:hidden; transition:transform .08s, box-shadow .08s; }
 .bar:hover { transform:translateY(-1px); box-shadow:0 3px 8px rgba(0,0,0,.18); z-index:3; }
 .bar .dotm { box-shadow:0 0 0 1.5px rgba(255,255,255,.85); }
-.bar-lbl { font-size:11px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.bar-lbl { font-size:11px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:4px; min-width:0; }
+.inhouse-badge { flex:0 0 auto; background:#fff; color:#10151D; font-size:9px; font-weight:700; line-height:1.4; padding:0 4px; border-radius:3px; }
+.clean-memo { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .bar.block { background:repeating-linear-gradient(45deg,rgba(120,130,145,.10),rgba(120,130,145,.10) 4px,transparent 4px,transparent 8px)!important; border-style:dashed!important; }
 .tl-nowline { position:absolute; top:0; bottom:0; width:2px; background:#F59E0B; z-index:4; }
 .lst-wrap { background:#fff; border:1px solid #E3E7ED; border-radius:12px; overflow:auto; }
@@ -744,5 +753,6 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
   .cnt-badge { padding:1px 5px; font-size:10px; }
   .bar-lbl { font-size:10px; }
   .grip { display:none; }
+  .tl-scroll { max-height:calc(100vh - 210px); }
 }
 `;
