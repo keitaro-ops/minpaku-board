@@ -407,7 +407,10 @@ function Timeline({ days, props, rows, today, onSel, tagOf, dragName, onDrop, ca
                     onDragOver={(e) => canDrag && e.preventDefault()}
                     onDrop={() => onDrop(p.name)}>
                     {canDrag && <span className="grip">⋮⋮</span>}
-                    <span className="nm">{p.name}</span>
+                    <div className="nm-wrap">
+                      <span className="nm">{p.name}</span>
+                      {tag && <span className="tagchip" style={{ background: tag.color }}>{tag.name}</span>}
+                    </div>
                     <span className="cnt-badge mono">{cnt}件</span>
                   </div>
                   <div className="tl-lane" style={{ width: gridW }}>
@@ -659,7 +662,9 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .tl-day.today .md { color:#B45309; }
 .tl-row { display:flex; border-bottom:1px solid #F0F2F5; }
 .tl-name { width:220px; flex:0 0 220px; padding:0 12px; display:flex; align-items:center; gap:6px; position:sticky; left:0; background:#fff; z-index:2; border-right:1px solid #E3E7ED; }
-.tl-name .nm { font-size:12.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; }
+.tl-name .nm { font-size:12.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.nm-wrap { flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:2px; overflow:hidden; }
+.tagchip { align-self:flex-start; max-width:100%; font-size:9px; line-height:1.3; font-weight:600; color:#fff; padding:0 5px; border-radius:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .grip { color:#C3CAD5; cursor:grab; font-size:11px; letter-spacing:-2px; user-select:none; }
 .cnt-badge { font-size:11px; color:#475467; background:#EEF1F5; border-radius:6px; padding:1px 7px; flex-shrink:0; }
 .tl-lane { position:relative; display:flex; }
@@ -735,6 +740,7 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
   .tl-day .md { font-size:11px; }
   .tl-mseg { font-size:10.5px; padding-left:6px; }
   .tl-name .nm { font-size:11.5px; }
+  .tagchip { font-size:8.5px; }
   .cnt-badge { padding:1px 5px; font-size:10px; }
   .bar-lbl { font-size:10px; }
   .grip { display:none; }
