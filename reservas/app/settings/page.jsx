@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 export default function Settings() {
   const [feeds, setFeeds] = useState([]);
   const [form, setForm] = useState({ property_name: "", area: "", platform: "airbnb", ical_url: "" });
+  const [ren, setRen] = useState({ from: "", to: "" });
+  const [renMsg, setRenMsg] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -33,6 +35,21 @@ export default function Settings() {
     const j = await r.json();
     setMsg(j.error ? "エラー: " + j.error : `同期完了：予約 ${j.reservations} 件${j.errors?.length ? `（取得失敗 ${j.errors.length} 件）` : ""}`);
   }
+  async function rename(e) {
+    e.preventDefault(); setRenMsg("");
+    if (!ren.from || !ren.to.trim()) { setRenMsg("旧名の選択と新名の入力が必要です"); return; }
+    setRenMsg("変更中…");
+    const r = await fetch("/api/rename", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ from: ren.from, to: ren.to.trim() }) });
+    const j = await r.json();
+    if (r.ok) {
+      setRenMsg("変更しました。ボードに反映するには下の「今すぐ同期」を押してください。");
+      setRen({ from: "", to: "" });
+      await load();
+    } else setRenMsg("エラー: " + (j.error || ""));
+  }
+  // feeds から重複しない物件名リスト
+  const propNames = [...new Set(feeds.map((f) => f.property_name))].sort();
 
   return (
     <div style={s.page}>
@@ -58,6 +75,24 @@ export default function Settings() {
         <p style={s.hint}>
           Airbnb: リスティング → カレンダー → 空室状況 → カレンダーを接続 → 「カレンダーをエクスポート」の.ics URL。<br />
           Booking: エクストラネット → カレンダー → カレンダーを同期（エクスポート）の.ics URL。
+        </p>
+      </form>
+
+      <form onSubmit={rename} style={{ ...s.card, marginTop: 16 }}>
+        <div style={s.renTitle}>物件名を変更（入力ミスの修正・表記ゆれの統合）</div>
+        <div style={s.renGrid}>
+          <select style={s.in} value={ren.from} onChange={(e) => setRen({ ...ren, from: e.target.value })}>
+            <option value="">変更したい物件を選択</option>
+            {propNames.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+          <span style={{ alignSelf: "center", color: "#8A94A6" }}>→</span>
+          <input style={s.in} placeholder="新しい物件名" value={ren.to} onChange={(e) => setRen({ ...ren, to: e.target.value })} />
+          <button style={s.btn}>変更</button>
+        </div>
+        {renMsg && <div style={{ ...s.msg, marginTop: 10 }}>{renMsg}</div>}
+        <p style={s.hint}>
+          選んだ名前の Airbnb・Booking 両方と、清掃・事前情報・分割・訂正の紐付けもまとめて新名に付け替えます。
+          既存の物件名を新名にすると「統合」になります（例: 「AJITO203」を「AJITO 203」に）。
         </p>
       </form>
 
@@ -91,6 +126,8 @@ const s = {
   h1: { fontSize: 22, margin: "8px 0 0" },
   card: { background: "#fff", border: "1px solid #E3E7ED", borderRadius: 14, padding: 18 },
   grid: { display: "grid", gridTemplateColumns: "1.4fr 1fr .8fr", gap: 10 },
+  renTitle: { fontSize: 13, fontWeight: 600, marginBottom: 12 },
+  renGrid: { display: "grid", gridTemplateColumns: "1.2fr auto 1.4fr auto", gap: 10, alignItems: "center" },
   in: { padding: "10px 12px", border: "1px solid #D8DDE5", borderRadius: 9, fontSize: 14, outline: "none", fontFamily: "inherit" },
   row: { display: "flex", alignItems: "center", gap: 14, marginTop: 12 },
   btn: { padding: "10px 20px", background: "#10151D", color: "#fff", border: 0, borderRadius: 9, fontSize: 14, fontWeight: 600, cursor: "pointer" },
