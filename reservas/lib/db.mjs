@@ -5,10 +5,10 @@ export function db() {
   if (!_sql) {
     _sql = postgres(process.env.DATABASE_URL, {
       ssl: "require",
-      max: 1,               // サーバーレスはプーラー枯渇を避けるため接続を絞る
+      max: 2,                 // 同時2接続（1本待ち行列の固まりを緩和）
       idle_timeout: 20,
       connect_timeout: 10,
-      prepare: false,       // Supabase transaction pooler 対応
+      prepare: false,
     });
   }
   return _sql;

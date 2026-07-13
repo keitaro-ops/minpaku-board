@@ -76,22 +76,28 @@ export default function Dashboard() {
   const toggleGroup = () => { const v = !groupByTag; setGroupByTag(v); LS.set("groupByTag", v); };
   const toggleCleanLabel = () => { const v = !showCleanLabel; setShowCleanLabel(v); LS.set("showCleanLabel", v); };
 
+  const busy = useRef(false);
   async function load() {
-    const r = await fetch("/api/reservations");
-    if (r.status === 401) { window.location.href = "/login"; return; }
-    const j = await r.json();
-    const rows = j.reservations || [];
-    setData(mapRows(rows));
-    try { localStorage.setItem("mb_resv_cache", JSON.stringify(rows)); } catch {}
+    if (busy.current) return;          // 同時多重リクエストを防止
+    busy.current = true;
+    try {
+      const r = await fetch("/api/reservations");
+      if (r.status === 401) { window.location.href = "/login"; return; }
+      const j = await r.json();
+      const rows = j.reservations || [];
+      setData(mapRows(rows));
+      try { localStorage.setItem("mb_resv_cache", JSON.stringify(rows)); } catch {}
+    } catch (e) { /* 失敗時は前回データを維持 */ }
+    finally { busy.current = false; }
   }
   // 直近データを即表示（真っ白な待ちを減らす）→ 裏で最新取得
   useEffect(() => {
     try { const c = localStorage.getItem("mb_resv_cache"); if (c) setData(mapRows(JSON.parse(c))); } catch {}
     load();
   }, []);
-  // 自動更新：3分ごと＋タブ復帰時
+  // 自動更新：10分ごと（表示中のみ）＋タブ復帰時
   useEffect(() => {
-    const t = setInterval(() => load(), 180000);
+    const t = setInterval(() => { if (!document.hidden) load(); }, 600000);
     const onFocus = () => load();
     window.addEventListener("focus", onFocus);
     return () => { clearInterval(t); window.removeEventListener("focus", onFocus); };
@@ -110,30 +116,36 @@ export default function Dashboard() {
     setSyncing(false);
   }
   async function toggleCheckin(r) {
+    setData((d) => d.map((x) => (x.id === r.id ? { ...x, info_submitted: !x.info_submitted } : x)));
+    setSel(null);
     await fetch("/api/checkin", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, submitted: !r.info_submitted }) });
-    await load(); setSel(null);
+    load();
   }
   async function saveCleaning(r, status, memo) {
+    setData((d) => d.map((x) => (x.id === r.id ? { ...x, cleaning_status: status, cleaning_memo: memo } : x)));
     await fetch("/api/cleaning", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, status, memo }) });
-    await load();
+    load();
   }
   async function doSplit(r, boundaries) {
+    setSel(null);
     await fetch("/api/split", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ property_name: r.property_name, check_in: r.split_ci || r.check_in, check_out: r.split_co || r.check_out, boundaries }) });
-    await load(); setSel(null);
+    load();
   }
   async function unSplit(r) {
+    setSel(null);
     await fetch("/api/split", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ property_name: r.property_name, check_in: r.split_ci || r.check_in, check_out: r.split_co || r.check_out, boundaries: null }) });
-    await load(); setSel(null);
+    load();
   }
   async function toggleType(r) {
     const next = r.type === "booking" ? "block" : "booking";
+    setSel(null);
     await fetch("/api/override", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, type: next }) });
-    await load(); setSel(null);
+    load();
   }
 
   // 物件一覧（順序・タグ適用）
