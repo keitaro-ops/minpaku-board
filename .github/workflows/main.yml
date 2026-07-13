@@ -1,0 +1,12 @@
+name: iCal 定期同期
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call cron endpoint
+        run: |
+          curl -fsS "${{ secrets.APP_URL }}/api/cron?secret=${{ secrets.CRON_SECRET }}" && echo "synced"
