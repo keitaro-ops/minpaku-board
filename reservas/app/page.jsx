@@ -1,6 +1,6 @@
 "use client";
 import "./globals.css";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const DAY_MS = 86400000;
 const DAY_W = 46;
@@ -10,11 +10,24 @@ const PLATFORMS = {
   booking: { label: "Booking", bar: "#0A3D91", ink: "#0A3D91" },
 };
 const WD = ["日", "月", "火", "水", "木", "金", "土"];
+const CLEAN = {
+  unrequested: { label: "未依頼", color: "#7C3AED", short: "未" },
+  requested: { label: "依頼済み", color: "#2F7D4E", short: "済" },
+  inhouse: { label: "自社清掃", color: "#0A3D91", short: "自社" },
+};
+const TAG_COLORS = ["#EF4444", "#F59E0B", "#10B981", "#3B82F6", "#8B5CF6", "#EC4899", "#14B8A6", "#6B7280"];
 
 const parseDate = (s) => { const [y, m, d] = String(s).slice(0, 10).split("-").map(Number); return new Date(y, m - 1, d); };
 const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const dayDiff = (a, b) => Math.round((startOfDay(a) - startOfDay(b)) / DAY_MS);
 const fmtMD = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+const uid = () => Math.random().toString(36).slice(2, 9);
+
+// 各自ブラウザ保存（端末ごとの個人設定）
+const LS = {
+  get(k, def) { try { const v = localStorage.getItem("mb_" + k); return v ? JSON.parse(v) : def; } catch { return def; } },
+  set(k, v) { try { localStorage.setItem("mb_" + k, JSON.stringify(v)); } catch {} },
+};
 
 export default function Dashboard() {
   const [today] = useState(() => startOfDay(new Date()));
@@ -23,6 +36,7 @@ export default function Dashboard() {
   const [plat, setPlat] = useState({ airbnb: true, booking: true });
   const [showBlocks, setShowBlocks] = useState(true);
   const [needInfoOnly, setNeedInfoOnly] = useState(false);
+  const [needCleanOnly, setNeedCleanOnly] = useState(false);
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(null);
   const [sort, setSort] = useState({ key: "check_in", dir: 1 });
@@ -33,6 +47,23 @@ export default function Dashboard() {
     return d;
   });
 
+  // 個人設定（localStorage）
+  const [order, setOrder] = useState([]);
+  const [tags, setTags] = useState([]);
+  const [propTags, setPropTags] = useState({});
+  const [groupByTag, setGroupByTag] = useState(false);
+  const [tagModal, setTagModal] = useState(false);
+  useEffect(() => {
+    setOrder(LS.get("order", []));
+    setTags(LS.get("tags", []));
+    setPropTags(LS.get("propTags", {}));
+    setGroupByTag(LS.get("groupByTag", false));
+  }, []);
+  const saveOrder = (v) => { setOrder(v); LS.set("order", v); };
+  const saveTags = (v) => { setTags(v); LS.set("tags", v); };
+  const savePropTags = (v) => { setPropTags(v); LS.set("propTags", v); };
+  const toggleGroup = () => { const v = !groupByTag; setGroupByTag(v); LS.set("groupByTag", v); };
+
   async function load() {
     const r = await fetch("/api/reservations");
     if (r.status === 401) { window.location.href = "/login"; return; }
@@ -40,10 +71,19 @@ export default function Dashboard() {
     setData(j.reservations.map((x, i) => ({
       ...x, id: i,
       info_submitted: !!x.info_submitted,
+      cleaning_status: x.cleaning_status || "unrequested",
+      cleaning_memo: x.cleaning_memo || "",
       ci: parseDate(x.check_in), co: parseDate(x.check_out),
     })));
   }
   useEffect(() => { load(); }, []);
+  // 自動更新：3分ごと＋タブ復帰時
+  useEffect(() => {
+    const t = setInterval(() => load(), 180000);
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    return () => { clearInterval(t); window.removeEventListener("focus", onFocus); };
+  }, []);
 
   async function manualSync() {
     setSyncing(true);
@@ -52,29 +92,41 @@ export default function Dashboard() {
     setSyncing(false);
   }
   async function toggleCheckin(r) {
-    await fetch("/api/checkin", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, submitted: !r.info_submitted }),
-    });
+    await fetch("/api/checkin", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, submitted: !r.info_submitted }) });
+    await load(); setSel(null);
+  }
+  async function saveCleaning(r, status, memo) {
+    await fetch("/api/cleaning", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, status, memo }) });
     await load();
-    setSel(null);
   }
   async function toggleType(r) {
     const next = r.type === "booking" ? "block" : "booking";
-    await fetch("/api/override", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, type: next }),
-    });
-    await load();
-    setSel(null);
+    await fetch("/api/override", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, type: next }) });
+    await load(); setSel(null);
   }
 
-  const props = useMemo(() => {
+  // 物件一覧（順序・タグ適用）
+  const baseProps = useMemo(() => {
     if (!data) return [];
     const m = new Map();
     for (const r of data) if (!m.has(r.property_name)) m.set(r.property_name, r.area || "");
-    return [...m.entries()].map(([name, area]) => ({ name, area })).sort((a, b) => a.name.localeCompare(b.name));
+    return [...m.entries()].map(([name, area]) => ({ name, area }));
   }, [data]);
+
+  const props = useMemo(() => {
+    let list = [...baseProps];
+    // 保存済みの順序を適用（未登録の新物件は末尾）
+    const pos = (n) => { const i = order.indexOf(n); return i === -1 ? 1e9 : i; };
+    list.sort((a, b) => pos(a.name) - pos(b.name) || a.name.localeCompare(b.name));
+    if (groupByTag) {
+      const tpos = (n) => { const t = propTags[n]; const i = tags.findIndex((x) => x.id === t); return i === -1 ? 1e9 : i; };
+      list.sort((a, b) => tpos(a.name) - tpos(b.name) || pos(a.name) - pos(b.name));
+    }
+    return list;
+  }, [baseProps, order, groupByTag, propTags, tags]);
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -83,24 +135,26 @@ export default function Dashboard() {
       if (!plat[r.platform]) return false;
       if (r.type === "block" && !showBlocks) return false;
       if (needInfoOnly && (r.type !== "booking" || r.info_submitted)) return false;
+      if (needCleanOnly && (r.type !== "booking" || r.cleaning_status !== "unrequested")) return false;
       if (s && !`${r.property_name} ${r.area || ""}`.toLowerCase().includes(s)) return false;
       return true;
     });
-  }, [data, plat, showBlocks, needInfoOnly, q]);
+  }, [data, plat, showBlocks, needInfoOnly, needCleanOnly, q]);
 
   const stats = useMemo(() => {
     const mStart = new Date(today.getFullYear(), today.getMonth(), 1);
     const mEnd = new Date(today.getFullYear(), today.getMonth() + 1, 1);
-    let ab = 0, bk = 0, nb = 0, need = 0;
+    let ab = 0, bk = 0, nb = 0, need = 0, needC = 0;
     filtered.forEach((r) => {
       if (r.type !== "booking") return;
       if (r.platform === "airbnb") ab++; else bk++;
       if (!r.info_submitted && r.co >= today) need++;
+      if (r.cleaning_status === "unrequested" && r.co >= today) needC++;
       const a = Math.max(r.ci, mStart), b = Math.min(r.co, mEnd);
       if (b > a) nb += Math.round((b - a) / DAY_MS);
     });
     const cap = Math.max(1, props.length) * Math.round((mEnd - mStart) / DAY_MS);
-    return { ab, bk, total: ab + bk, occ: Math.round((nb / cap) * 100), need };
+    return { ab, bk, total: ab + bk, occ: Math.round((nb / cap) * 100), need, needC };
   }, [filtered, props, today]);
 
   const days = useMemo(
@@ -121,7 +175,20 @@ export default function Dashboard() {
   }, [filtered, sort]);
   const toggleSort = (key) => setSort((s) => (s.key === key ? { key, dir: -s.dir } : { key, dir: 1 }));
 
+  // ドラッグ並び替え
+  const dragName = useRef(null);
+  function onDrop(targetName) {
+    const from = dragName.current;
+    if (!from || from === targetName) return;
+    const names = props.map((p) => p.name);
+    const fi = names.indexOf(from), ti = names.indexOf(targetName);
+    names.splice(ti, 0, names.splice(fi, 1)[0]);
+    saveOrder(names);
+    dragName.current = null;
+  }
+
   if (!data) return <div style={{ padding: 40, color: "#667085" }}>読み込み中…</div>;
+  const tagOf = (name) => tags.find((t) => t.id === propTags[name]);
 
   return (
     <div className="app">
@@ -131,15 +198,15 @@ export default function Dashboard() {
           <div className="logo">◲</div>
           <div>
             <h1>予約統合ボード</h1>
-            <p className="sub">{props.length} 物件 · Airbnb / Booking を統合 · 隣接予約も別件で表示</p>
+            <p className="sub">{props.length} 物件 · Airbnb / Booking を統合 · 自動更新中</p>
           </div>
         </div>
         <div className="chips">
           <Chip color="#10151D" label="予約 合計" value={stats.total} />
           <Chip color={PLATFORMS.airbnb.bar} label="Airbnb" value={stats.ab} />
           <Chip color={PLATFORMS.booking.bar} label="Booking" value={stats.bk} />
-          <Chip color="#0F766E" label="今月 稼働率" value={stats.occ + "%"} />
           <Chip color="#F59E0B" label="事前情報 未提出" value={stats.need} />
+          <Chip color="#7C3AED" label="清掃 未依頼" value={stats.needC} />
         </div>
       </header>
 
@@ -155,20 +222,27 @@ export default function Dashboard() {
             ))}
           </FilterGroup>
           <FilterGroup title="表示">
-            <label className="flt">
-              <input type="checkbox" checked={showBlocks} onChange={() => setShowBlocks((v) => !v)} />
-              ブロックも表示
-            </label>
-            <label className="flt">
-              <input type="checkbox" checked={needInfoOnly} onChange={() => setNeedInfoOnly((v) => !v)} />
-              事前情報 未提出のみ
-            </label>
+            <label className="flt"><input type="checkbox" checked={showBlocks} onChange={() => setShowBlocks((v) => !v)} />ブロックも表示</label>
+            <label className="flt"><input type="checkbox" checked={needInfoOnly} onChange={() => setNeedInfoOnly((v) => !v)} />事前情報 未提出のみ</label>
+            <label className="flt"><input type="checkbox" checked={needCleanOnly} onChange={() => setNeedCleanOnly((v) => !v)} />清掃 未依頼のみ</label>
           </FilterGroup>
+          <FilterGroup title="並び替え（自分用）">
+            <label className="flt"><input type="checkbox" checked={groupByTag} onChange={toggleGroup} />タグごとにまとめる</label>
+            <button className="ghost" onClick={() => setTagModal(true)}>タグ設定 / 割り当て</button>
+            <div className="hint2">行の左をドラッグで並び替え（各自のブラウザに保存）</div>
+          </FilterGroup>
+          {tags.length > 0 && (
+            <div className="legend">
+              <div className="lg-t">タグ</div>
+              {tags.map((t) => <div key={t.id} className="lg-row"><span className="swatch" style={{ background: t.color }} />{t.name}</div>)}
+            </div>
+          )}
           <div className="legend">
             <div className="lg-row"><span className="swatch" style={{ background: PLATFORMS.airbnb.bar }} />Airbnb 予約</div>
             <div className="lg-row"><span className="swatch" style={{ background: PLATFORMS.booking.bar }} />Booking 予約</div>
             <div className="lg-row"><span className="swatch hatch" />ブロック（件数外）</div>
-            <div className="lg-row"><span className="needdot" style={{ position: "static", boxShadow: "none" }} />事前情報 未提出</div>
+            <div className="lg-row"><span className="dotm" style={{ background: "#F59E0B" }} />事前情報 未提出</div>
+            <div className="lg-row"><span className="dotm" style={{ background: "#7C3AED" }} />清掃 未依頼</div>
           </div>
           <div className="side-actions">
             <button className="ghost" onClick={manualSync} disabled={syncing}>{syncing ? "同期中…" : "今すぐ同期"}</button>
@@ -194,41 +268,59 @@ export default function Dashboard() {
           </div>
 
           {props.length === 0 ? (
-            <div className="empty">
-              まだ予約がありません。「物件・iCal設定」で各サイトのエクスポートURLを登録し、「今すぐ同期」を押してください。
-            </div>
+            <div className="empty">まだ予約がありません。「物件・iCal設定」でURLを登録し「今すぐ同期」を押してください。</div>
           ) : view === "timeline" ? (
-            <Timeline days={days} props={props} rows={filtered} today={today} onSel={setSel} />
+            <Timeline days={days} props={props} rows={filtered} today={today} onSel={setSel}
+              tagOf={tagOf} dragName={dragName} onDrop={onDrop} canDrag={!groupByTag} />
           ) : (
             <ListView rows={listRows} sort={sort} onSort={toggleSort} onSel={setSel} />
           )}
         </main>
       </div>
 
-      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} />}
+      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onClean={saveCleaning} />}
+      {tagModal && <TagModal tags={tags} propTags={propTags} props={baseProps} onClose={() => setTagModal(false)}
+        saveTags={saveTags} savePropTags={savePropTags} />}
     </div>
   );
 }
 
-function Timeline({ days, props, rows, today, onSel }) {
+function Timeline({ days, props, rows, today, onSel, tagOf, dragName, onDrop, canDrag }) {
   const gridW = days.length * DAY_W;
   const todayIdx = dayDiff(today, days[0]);
+  // 月の区切り
+  const months = [];
+  days.forEach((d) => {
+    const key = d.getFullYear() + "-" + d.getMonth();
+    const last = months[months.length - 1];
+    if (last && last.key === key) last.count++;
+    else months.push({ key, count: 1, y: d.getFullYear(), m: d.getMonth() + 1 });
+  });
   return (
     <div className="tl-wrap">
       <div className="tl-scroll">
         <div style={{ minWidth: 220 + gridW }}>
           <div className="tl-head">
             <div className="tl-corner">物件</div>
-            <div style={{ display: "flex", width: gridW }}>
-              {days.map((d, i) => {
-                const wknd = d.getDay() === 0 || d.getDay() === 6;
-                const isToday = dayDiff(d, today) === 0;
-                return (
-                  <div key={i} className={"tl-day" + (wknd ? " wknd" : "") + (isToday ? " today" : "")} style={{ width: DAY_W }}>
-                    <span className="wd">{WD[d.getDay()]}</span><span className="md mono">{d.getDate()}</span>
+            <div style={{ width: gridW }}>
+              <div className="tl-months">
+                {months.map((mo, i) => (
+                  <div key={i} className="tl-mseg" style={{ width: mo.count * DAY_W }}>
+                    {i === 0 || mo.m === 1 ? `${mo.y}年${mo.m}月` : `${mo.m}月`}
                   </div>
-                );
-              })}
+                ))}
+              </div>
+              <div style={{ display: "flex" }}>
+                {days.map((d, i) => {
+                  const wknd = d.getDay() === 0 || d.getDay() === 6;
+                  const isToday = dayDiff(d, today) === 0;
+                  return (
+                    <div key={i} className={"tl-day" + (wknd ? " wknd" : "") + (isToday ? " today" : "")} style={{ width: DAY_W }}>
+                      <span className="wd">{WD[d.getDay()]}</span><span className="md mono">{d.getDate()}</span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
           <div style={{ position: "relative" }}>
@@ -238,9 +330,15 @@ function Timeline({ days, props, rows, today, onSel }) {
             {props.map((p) => {
               const rs = rows.filter((r) => r.property_name === p.name);
               const cnt = rs.filter((r) => r.type === "booking").length;
+              const tag = tagOf(p.name);
               return (
                 <div key={p.name} className="tl-row" style={{ height: ROW_H }}>
-                  <div className="tl-name">
+                  <div className="tl-name" style={{ borderLeft: tag ? `4px solid ${tag.color}` : "4px solid transparent" }}
+                    draggable={canDrag}
+                    onDragStart={() => { dragName.current = p.name; }}
+                    onDragOver={(e) => canDrag && e.preventDefault()}
+                    onDrop={() => onDrop(p.name)}>
+                    {canDrag && <span className="grip">⋮⋮</span>}
                     <span className="nm">{p.name}</span>
                     <span className="cnt-badge mono">{cnt}件</span>
                   </div>
@@ -259,8 +357,10 @@ function Timeline({ days, props, rows, today, onSel }) {
                       return (
                         <button key={r.id} className={"bar" + (block ? " block" : "")}
                           style={{ left, width, top: 6, height: ROW_H - 12, background: block ? "transparent" : pf.bar, borderColor: block ? "#B6BECB" : pf.bar }}
-                          onClick={() => onSel(r)} title={`${p.name} ${fmtMD(r.ci)}〜${fmtMD(r.co)}（${r.nights}泊）${!block && !r.info_submitted ? " ・事前情報 未提出" : ""}`}>
-                          {!block && !r.info_submitted && <span className="needdot" />}
+                          onClick={() => onSel(r)}
+                          title={`${p.name} ${fmtMD(r.ci)}〜${fmtMD(r.co)}（${r.nights}泊）`}>
+                          {!block && !r.info_submitted && <span className="dotm" style={{ background: "#F59E0B" }} />}
+                          {!block && r.cleaning_status === "unrequested" && <span className="dotm" style={{ background: "#7C3AED" }} />}
                           <span className="bar-lbl" style={{ color: block ? "#5A6472" : "#fff" }}>{block ? "ブロック" : r.nights + "泊"}</span>
                         </button>
                       );
@@ -277,7 +377,7 @@ function Timeline({ days, props, rows, today, onSel }) {
 }
 
 function ListView({ rows, sort, onSort, onSel }) {
-  const cols = [["property_name", "物件"], ["check_in", "IN"], ["check_out", "OUT"], ["nights", "泊"], ["platform", "サイト"], ["type", "区分"], ["info_submitted", "事前情報"], ["res_code", "予約コード"]];
+  const cols = [["property_name", "物件"], ["check_in", "IN"], ["check_out", "OUT"], ["nights", "泊"], ["platform", "サイト"], ["type", "区分"], ["info_submitted", "事前情報"], ["cleaning_status", "清掃"], ["cleaning_memo", "依頼先メモ"], ["res_code", "予約コード"]];
   return (
     <div className="lst-wrap">
       <table className="lst">
@@ -287,6 +387,7 @@ function ListView({ rows, sort, onSort, onSel }) {
         <tbody>
           {rows.map((r) => {
             const pf = PLATFORMS[r.platform] || PLATFORMS.airbnb;
+            const cl = CLEAN[r.cleaning_status] || CLEAN.unrequested;
             return (
               <tr key={r.id} className={r.type === "block" ? "blk" : ""} onClick={() => onSel(r)}>
                 <td className="strong">{r.property_name}</td>
@@ -296,6 +397,8 @@ function ListView({ rows, sort, onSort, onSel }) {
                 <td><span className="tag" style={{ background: pf.bar }}>{pf.label}</span></td>
                 <td>{r.type === "booking" ? "予約" : <span className="muted">ブロック</span>}</td>
                 <td>{r.type !== "booking" ? <span className="muted">—</span> : r.info_submitted ? <span className="ok">済</span> : <span className="need">未</span>}</td>
+                <td>{r.type !== "booking" ? <span className="muted">—</span> : <span style={{ color: cl.color, fontWeight: 600 }}>{cl.short}</span>}</td>
+                <td className="muted" style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }}>{r.cleaning_memo || "—"}</td>
                 <td className="mono muted">{r.res_code || "—"}</td>
               </tr>
             );
@@ -306,9 +409,11 @@ function ListView({ rows, sort, onSort, onSel }) {
   );
 }
 
-function Detail({ r, onClose, onToggle, onCheckin }) {
+function Detail({ r, onClose, onToggle, onCheckin, onClean }) {
   const pf = PLATFORMS[r.platform] || PLATFORMS.airbnb;
   const block = r.type === "block";
+  const [cstatus, setCstatus] = useState(r.cleaning_status || "unrequested");
+  const [cmemo, setCmemo] = useState(r.cleaning_memo || "");
   return (
     <div className="ov" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -324,17 +429,84 @@ function Detail({ r, onClose, onToggle, onCheckin }) {
           <div><dt>泊数</dt><dd className="mono">{r.nights}泊</dd></div>
           <div><dt>予約コード</dt><dd className="mono">{r.res_code || "—"}</dd></div>
         </dl>
+
         {!block && (
-          <div className={"m-info " + (r.info_submitted ? "done" : "todo")}>
-            <span>事前チェックイン情報：<b>{r.info_submitted ? "提出済み" : "未提出"}</b></span>
-            <button onClick={() => onCheckin(r)}>{r.info_submitted ? "未提出に戻す" : "提出済みにする"}</button>
-          </div>
+          <>
+            <div className={"m-info " + (r.info_submitted ? "done" : "todo")}>
+              <span>事前チェックイン情報：<b>{r.info_submitted ? "提出済み" : "未提出"}</b></span>
+              <button onClick={() => onCheckin(r)}>{r.info_submitted ? "未提出に戻す" : "提出済みにする"}</button>
+            </div>
+
+            <div className="m-clean">
+              <div className="m-clean-t">清掃</div>
+              <div className="m-clean-btns">
+                {Object.entries(CLEAN).map(([k, v]) => (
+                  <button key={k} className={"cbtn" + (cstatus === k ? " on" : "")}
+                    style={cstatus === k ? { background: v.color, borderColor: v.color, color: "#fff" } : {}}
+                    onClick={() => { setCstatus(k); onClean(r, k, cmemo); }}>{v.label}</button>
+                ))}
+              </div>
+              <input className="m-memo" placeholder="清掃依頼先メモ（例: ○○クリーニング）"
+                value={cmemo} onChange={(e) => setCmemo(e.target.value)}
+                onBlur={() => onClean(r, cstatus, cmemo)} />
+            </div>
+
+            {r.res_url && <a className="m-link" href={r.res_url} target="_blank" rel="noreferrer">予約ページを開く ↗</a>}
+            {!r.res_url && r.platform === "booking" && <a className="m-link" href="https://admin.booking.com" target="_blank" rel="noreferrer">Bookingエクストラネットを開く ↗</a>}
+          </>
         )}
-        {!block && r.res_url && <a className="m-link" href={r.res_url} target="_blank" rel="noreferrer">予約ページを開く ↗</a>}
-        {!block && !r.res_url && r.platform === "booking" && <a className="m-link" href="https://admin.booking.com" target="_blank" rel="noreferrer">Bookingエクストラネットを開く ↗</a>}
-        <button className="m-toggle" onClick={() => onToggle(r)}>
-          {block ? "「予約」に戻す" : "「ブロック」に訂正する"}
-        </button>
+        <button className="m-toggle" onClick={() => onToggle(r)}>{block ? "「予約」に戻す" : "「ブロック」に訂正する"}</button>
+      </div>
+    </div>
+  );
+}
+
+function TagModal({ tags, propTags, props, onClose, saveTags, savePropTags }) {
+  const [name, setName] = useState("");
+  const [color, setColor] = useState(TAG_COLORS[0]);
+  const addTag = () => { if (!name.trim()) return; saveTags([...tags, { id: uid(), name: name.trim(), color }]); setName(""); };
+  const delTag = (id) => {
+    saveTags(tags.filter((t) => t.id !== id));
+    const pt = { ...propTags }; Object.keys(pt).forEach((k) => { if (pt[k] === id) delete pt[k]; }); savePropTags(pt);
+  };
+  const assign = (prop, id) => savePropTags({ ...propTags, [prop]: id || undefined });
+  return (
+    <div className="ov" onClick={onClose}>
+      <div className="modal wide" onClick={(e) => e.stopPropagation()}>
+        <div className="m-top" style={{ borderColor: "#10151D" }}>
+          <b>タグ設定（自分用・この端末に保存）</b>
+          <button className="x" onClick={onClose}>✕</button>
+        </div>
+
+        <div className="tg-add">
+          <input placeholder="タグ名（例: 渋谷区 / 港区 / 高稼働）" value={name} onChange={(e) => setName(e.target.value)} />
+          <div className="tg-colors">
+            {TAG_COLORS.map((c) => <span key={c} className={"tg-c" + (color === c ? " on" : "")} style={{ background: c }} onClick={() => setColor(c)} />)}
+          </div>
+          <button className="tg-addbtn" onClick={addTag}>追加</button>
+        </div>
+        <div className="tg-list">
+          {tags.map((t) => (
+            <span key={t.id} className="tg-chip" style={{ borderColor: t.color }}>
+              <span className="swatch" style={{ background: t.color }} />{t.name}
+              <button onClick={() => delTag(t.id)}>×</button>
+            </span>
+          ))}
+          {tags.length === 0 && <span className="muted">まだタグがありません</span>}
+        </div>
+
+        <div className="tg-assign-t">物件にタグを割り当て</div>
+        <div className="tg-assign">
+          {props.map((p) => (
+            <div key={p.name} className="tg-row">
+              <span className="tg-pn">{p.name}</span>
+              <select value={propTags[p.name] || ""} onChange={(e) => assign(p.name, e.target.value)}>
+                <option value="">（なし）</option>
+                {tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -360,19 +532,22 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .stat-v { font-size:16px; font-weight:600; line-height:1; }
 .stat-l { font-size:10.5px; color:#667085; margin-top:3px; }
 .body { display:flex; align-items:flex-start; }
-.side { width:210px; flex:0 0 210px; padding:18px 16px; border-right:1px solid #E3E7ED; background:#fff; min-height:calc(100vh - 74px); }
+.side { width:220px; flex:0 0 220px; padding:18px 16px; border-right:1px solid #E3E7ED; background:#fff; min-height:calc(100vh - 74px); }
 .main { flex:1; min-width:0; padding:16px 20px 40px; }
 .search { width:100%; padding:9px 11px; border:1px solid #D8DDE5; border-radius:9px; font-size:13px; margin-bottom:18px; outline:none; }
 .fg { margin-bottom:18px; }
 .fg-t { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:#8A94A6; margin-bottom:9px; }
 .flt { display:flex; align-items:center; gap:8px; font-size:13px; padding:4px 0; cursor:pointer; }
 .flt input { accent-color:#10151D; }
-.swatch { width:13px; height:13px; border-radius:4px; display:inline-block; }
+.swatch { width:13px; height:13px; border-radius:4px; display:inline-block; flex:0 0 auto; }
 .swatch.hatch { background:repeating-linear-gradient(45deg,#B6BECB,#B6BECB 3px,#fff 3px,#fff 6px); border:1px solid #C3CAD5; }
-.legend { border-top:1px solid #EDF0F4; padding-top:14px; margin-bottom:16px; }
+.dotm { width:8px; height:8px; border-radius:50%; display:inline-block; flex:0 0 auto; }
+.hint2 { font-size:11px; color:#98A2B3; margin-top:6px; line-height:1.5; }
+.legend { border-top:1px solid #EDF0F4; padding-top:14px; margin-bottom:14px; }
+.lg-t { font-size:11px; font-weight:600; color:#8A94A6; text-transform:uppercase; margin-bottom:8px; }
 .lg-row { display:flex; align-items:center; gap:8px; font-size:12px; color:#475467; padding:3px 0; }
 .side-actions { display:flex; flex-direction:column; gap:8px; border-top:1px solid #EDF0F4; padding-top:14px; }
-.ghost { text-align:left; border:1px solid #D8DDE5; background:#fff; border-radius:8px; padding:8px 11px; font-size:12.5px; cursor:pointer; font-family:inherit; color:#10151D; text-decoration:none; }
+.ghost { text-align:left; border:1px solid #D8DDE5; background:#fff; border-radius:8px; padding:8px 11px; font-size:12.5px; cursor:pointer; font-family:inherit; color:#10151D; text-decoration:none; display:block; width:100%; }
 .ghost:hover { background:#F5F7FA; }
 .toolbar { display:flex; align-items:center; gap:14px; margin-bottom:14px; flex-wrap:wrap; }
 .seg { display:inline-flex; background:#E4E8EE; border-radius:9px; padding:3px; }
@@ -381,11 +556,13 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .nav { display:flex; gap:6px; }
 .nav button { border:1px solid #D8DDE5; background:#fff; border-radius:8px; padding:6px 11px; font-size:12.5px; cursor:pointer; font-family:inherit; }
 .count { margin-left:auto; font-size:12.5px; color:#667085; }
-.empty { background:#fff; border:1px dashed #C9D0DA; border-radius:12px; padding:40px 24px; text-align:center; color:#667085; font-size:14px; line-height:1.7; }
+.empty { background:#fff; border:1px dashed #C9D0DA; border-radius:12px; padding:40px 24px; text-align:center; color:#667085; font-size:14px; }
 .tl-wrap { background:#fff; border:1px solid #E3E7ED; border-radius:12px; overflow:hidden; }
 .tl-scroll { overflow-x:auto; }
 .tl-head { display:flex; position:sticky; top:0; z-index:5; background:#fff; border-bottom:1px solid #E3E7ED; }
-.tl-corner { width:220px; flex:0 0 220px; padding:10px 14px; font-size:11px; font-weight:600; color:#8A94A6; text-transform:uppercase; position:sticky; left:0; background:#fff; z-index:6; border-right:1px solid #E3E7ED; }
+.tl-corner { width:220px; flex:0 0 220px; padding:10px 14px; font-size:11px; font-weight:600; color:#8A94A6; text-transform:uppercase; position:sticky; left:0; background:#fff; z-index:6; border-right:1px solid #E3E7ED; display:flex; align-items:flex-end; }
+.tl-months { display:flex; border-bottom:1px solid #EDF0F4; }
+.tl-mseg { flex-shrink:0; font-size:11.5px; font-weight:700; color:#344054; padding:4px 0 4px 8px; border-right:1px solid #E3E7ED; white-space:nowrap; background:#FAFBFC; font-family:'Space Grotesk',sans-serif; }
 .tl-day { flex-shrink:0; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:6px 0; border-right:1px solid #F0F2F5; }
 .tl-day .wd { font-size:10px; color:#8A94A6; }
 .tl-day .md { font-size:12px; font-weight:600; }
@@ -393,24 +570,19 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .tl-day.today { background:#FEF3E2; }
 .tl-day.today .md { color:#B45309; }
 .tl-row { display:flex; border-bottom:1px solid #F0F2F5; }
-.tl-name { width:220px; flex:0 0 220px; padding:0 14px; display:flex; align-items:center; justify-content:space-between; gap:8px; position:sticky; left:0; background:#fff; z-index:2; border-right:1px solid #E3E7ED; }
-.tl-name .nm { font-size:12.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tl-name { width:220px; flex:0 0 220px; padding:0 12px; display:flex; align-items:center; gap:6px; position:sticky; left:0; background:#fff; z-index:2; border-right:1px solid #E3E7ED; }
+.tl-name .nm { font-size:12.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; }
+.grip { color:#C3CAD5; cursor:grab; font-size:11px; letter-spacing:-2px; user-select:none; }
 .cnt-badge { font-size:11px; color:#475467; background:#EEF1F5; border-radius:6px; padding:1px 7px; flex-shrink:0; }
 .tl-lane { position:relative; display:flex; }
 .cell { flex-shrink:0; height:100%; border-right:1px solid #F4F6F8; }
 .cell.wknd { background:#FBFAF7; }
-.bar { position:absolute; border-radius:7px; border:1.5px solid transparent; display:flex; align-items:center; padding:0 8px; cursor:pointer; overflow:hidden; transition:transform .08s, box-shadow .08s; }
+.bar { position:absolute; border-radius:7px; border:1.5px solid transparent; display:flex; align-items:center; gap:3px; padding:0 7px; cursor:pointer; overflow:hidden; transition:transform .08s, box-shadow .08s; }
 .bar:hover { transform:translateY(-1px); box-shadow:0 3px 8px rgba(0,0,0,.18); z-index:3; }
+.bar .dotm { box-shadow:0 0 0 1.5px rgba(255,255,255,.85); }
 .bar-lbl { font-size:11px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .bar.block { background:repeating-linear-gradient(45deg,rgba(120,130,145,.10),rgba(120,130,145,.10) 4px,transparent 4px,transparent 8px)!important; border-style:dashed!important; }
 .tl-nowline { position:absolute; top:0; bottom:0; width:2px; background:#F59E0B; z-index:4; }
-.needdot { width:7px; height:7px; border-radius:50%; background:#F59E0B; flex:0 0 auto; margin-right:5px; box-shadow:0 0 0 1.5px rgba(255,255,255,.85); }
-.lst .ok { color:#2F7D4E; }
-.lst .need { color:#B45309; font-weight:700; }
-.m-info { margin-top:18px; display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:13px; border-radius:10px; padding:10px 12px; }
-.m-info.todo { background:#FEF3E2; border:1px solid #F5D9A8; color:#8A5A00; }
-.m-info.done { background:#EAF6EE; border:1px solid #C5E6D0; color:#2F7D4E; }
-.m-info button { border:1px solid rgba(0,0,0,.12); background:#fff; border-radius:8px; padding:6px 12px; font-size:12px; cursor:pointer; font-family:inherit; white-space:nowrap; }
 .lst-wrap { background:#fff; border:1px solid #E3E7ED; border-radius:12px; overflow:auto; }
 .lst { width:100%; border-collapse:collapse; font-size:13px; }
 .lst th { text-align:left; padding:11px 14px; font-size:11px; text-transform:uppercase; color:#8A94A6; border-bottom:1px solid #E3E7ED; cursor:pointer; white-space:nowrap; position:sticky; top:0; background:#fff; }
@@ -421,17 +593,44 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .lst tr.blk td { opacity:.5; }
 .lst .strong { font-weight:600; }
 .lst .muted { color:#98A2B3; }
+.lst .ok { color:#2F7D4E; }
+.lst .need { color:#B45309; font-weight:700; }
 .tag { color:#fff; font-size:11px; font-weight:600; padding:2px 8px; border-radius:6px; }
 .ov { position:fixed; inset:0; background:rgba(16,21,29,.45); display:grid; place-items:center; padding:20px; z-index:50; }
-.modal { background:#fff; width:100%; max-width:440px; border-radius:16px; padding:22px 24px 24px; box-shadow:0 20px 60px rgba(0,0,0,.3); }
+.modal { background:#fff; width:100%; max-width:460px; border-radius:16px; padding:22px 24px 24px; box-shadow:0 20px 60px rgba(0,0,0,.3); max-height:88vh; overflow:auto; }
+.modal.wide { max-width:560px; }
 .m-top { display:flex; align-items:center; gap:10px; padding-bottom:14px; border-bottom:2px solid; margin-bottom:14px; }
 .x { margin-left:auto; border:0; background:#F0F2F5; width:28px; height:28px; border-radius:8px; cursor:pointer; }
 .modal h2 { font-size:20px; }
 .m-prop { font-size:13px; color:#667085; margin:4px 0 16px; }
-.m-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px 20px; margin:0; }
+.m-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px 20px; margin:0 0 4px; }
 .m-grid dt { font-size:10.5px; text-transform:uppercase; color:#8A94A6; margin-bottom:3px; }
 .m-grid dd { margin:0; font-size:14px; font-weight:500; }
-.m-link { display:inline-block; margin-top:18px; margin-right:10px; font-size:13px; font-weight:600; color:#0A3D91; text-decoration:none; border:1px solid #C9D6EE; border-radius:9px; padding:9px 14px; }
-.m-toggle { margin-top:18px; font-size:12.5px; color:#5A6472; background:#F3F5F8; border:1px solid #E3E7ED; border-radius:9px; padding:9px 14px; cursor:pointer; font-family:inherit; }
+.m-info { margin-top:16px; display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:13px; border-radius:10px; padding:10px 12px; }
+.m-info.todo { background:#FEF3E2; border:1px solid #F5D9A8; color:#8A5A00; }
+.m-info.done { background:#EAF6EE; border:1px solid #C5E6D0; color:#2F7D4E; }
+.m-info button { border:1px solid rgba(0,0,0,.12); background:#fff; border-radius:8px; padding:6px 12px; font-size:12px; cursor:pointer; font-family:inherit; white-space:nowrap; }
+.m-clean { margin-top:14px; border:1px solid #E3E7ED; border-radius:10px; padding:12px; }
+.m-clean-t { font-size:11px; font-weight:600; color:#8A94A6; text-transform:uppercase; margin-bottom:8px; }
+.m-clean-btns { display:flex; gap:8px; margin-bottom:10px; }
+.cbtn { flex:1; border:1px solid #D8DDE5; background:#fff; border-radius:8px; padding:8px 6px; font-size:12.5px; cursor:pointer; font-family:inherit; }
+.m-memo { width:100%; padding:8px 10px; border:1px solid #D8DDE5; border-radius:8px; font-size:13px; outline:none; font-family:inherit; }
+.m-link { display:inline-block; margin-top:16px; margin-right:10px; font-size:13px; font-weight:600; color:#0A3D91; text-decoration:none; border:1px solid #C9D6EE; border-radius:9px; padding:9px 14px; }
+.m-toggle { margin-top:16px; font-size:12.5px; color:#5A6472; background:#F3F5F8; border:1px solid #E3E7ED; border-radius:9px; padding:9px 14px; cursor:pointer; font-family:inherit; display:block; }
+.tg-add { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+.tg-add input { flex:1; min-width:180px; padding:9px 11px; border:1px solid #D8DDE5; border-radius:8px; font-size:13px; outline:none; font-family:inherit; }
+.tg-colors { display:flex; gap:5px; }
+.tg-c { width:20px; height:20px; border-radius:6px; cursor:pointer; border:2px solid transparent; }
+.tg-c.on { border-color:#10151D; }
+.tg-addbtn { border:0; background:#10151D; color:#fff; border-radius:8px; padding:9px 16px; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; }
+.tg-list { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
+.tg-chip { display:inline-flex; align-items:center; gap:6px; border:1.5px solid; border-radius:20px; padding:4px 10px; font-size:12.5px; }
+.tg-chip button { border:0; background:transparent; cursor:pointer; font-size:14px; color:#98A2B3; }
+.tg-assign-t { font-size:11px; font-weight:600; color:#8A94A6; text-transform:uppercase; margin-bottom:8px; border-top:1px solid #EDF0F4; padding-top:14px; }
+.tg-assign { display:flex; flex-direction:column; gap:6px; max-height:240px; overflow:auto; }
+.tg-row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.tg-pn { font-size:13px; }
+.tg-row select { border:1px solid #D8DDE5; border-radius:8px; padding:6px 8px; font-size:12.5px; font-family:inherit; }
+.muted { color:#98A2B3; }
 @media (max-width:820px){ .body { flex-direction:column; } .side { width:100%; flex:none; min-height:0; border-right:0; border-bottom:1px solid #E3E7ED; } }
 `;
