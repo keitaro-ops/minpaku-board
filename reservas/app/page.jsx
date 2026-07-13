@@ -229,6 +229,7 @@ export default function Dashboard() {
 
   // ドラッグ並び替え
   const dragName = useRef(null);
+  const scrollRef = useRef(null);
   function onDrop(targetName) {
     const from = dragName.current;
     if (!from || from === targetName) return;
@@ -327,6 +328,9 @@ export default function Dashboard() {
             </div>
             {view === "timeline" && (
               <div className="nav">
+                <button onClick={() => scrollRef.current?.scrollBy({ left: -7 * dayW, behavior: "smooth" })} title="左へ">◀</button>
+                <button onClick={() => scrollRef.current?.scrollBy({ left: 7 * dayW, behavior: "smooth" })} title="右へ">▶</button>
+                <span className="nav-sep" />
                 <button onClick={() => setWinStart(new Date(winStart.getTime() - 7 * DAY_MS))}>‹ 前週</button>
                 <button onClick={() => { const d = startOfDay(new Date()); d.setDate(d.getDate() - ((d.getDay() + 6) % 7) - 7); setWinStart(d); }}>今日</button>
                 <button onClick={() => setWinStart(new Date(winStart.getTime() + 7 * DAY_MS))}>次週 ›</button>
@@ -339,7 +343,7 @@ export default function Dashboard() {
             <div className="empty">まだ予約がありません。「物件・iCal設定」でURLを登録し「今すぐ同期」を押してください。</div>
           ) : view === "timeline" ? (
             <Timeline days={days} props={props} rows={filtered} today={today} onSel={setSel}
-              tagOf={tagOf} dragName={dragName} onDrop={onDrop} canDrag={!groupByTag} showCleanLabel={showCleanLabel} dayW={dayW} nameW={nameW} />
+              tagOf={tagOf} dragName={dragName} onDrop={onDrop} canDrag={!groupByTag} showCleanLabel={showCleanLabel} dayW={dayW} nameW={nameW} scrollRef={scrollRef} />
           ) : (
             <ListView rows={listRows} sort={sort} onSort={toggleSort} onSel={setSel} />
           )}
@@ -353,7 +357,7 @@ export default function Dashboard() {
   );
 }
 
-function Timeline({ days, props, rows, today, onSel, tagOf, dragName, onDrop, canDrag, showCleanLabel, dayW, nameW }) {
+function Timeline({ days, props, rows, today, onSel, tagOf, dragName, onDrop, canDrag, showCleanLabel, dayW, nameW, scrollRef }) {
   const gridW = days.length * dayW;
   const todayIdx = dayDiff(today, days[0]);
   // 月の区切り
@@ -366,7 +370,7 @@ function Timeline({ days, props, rows, today, onSel, tagOf, dragName, onDrop, ca
   });
   return (
     <div className="tl-wrap">
-      <div className="tl-scroll">
+      <div className="tl-scroll" ref={scrollRef}>
         <div style={{ minWidth: nameW + gridW }}>
           <div className="tl-head">
             <div className="tl-corner" style={{ width: nameW, flex: `0 0 ${nameW}px` }}>物件</div>
@@ -651,7 +655,8 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .seg { display:inline-flex; background:#E4E8EE; border-radius:9px; padding:3px; }
 .seg button { border:0; background:transparent; padding:7px 15px; font-size:13px; font-weight:600; border-radius:7px; cursor:pointer; color:#5A6472; font-family:inherit; }
 .seg button.on { background:#fff; color:#10151D; box-shadow:0 1px 2px rgba(0,0,0,.08); }
-.nav { display:flex; gap:6px; }
+.nav { display:flex; gap:6px; align-items:center; }
+.nav-sep { width:1px; height:20px; background:#D8DDE5; margin:0 2px; }
 .nav button { border:1px solid #D8DDE5; background:#fff; border-radius:8px; padding:6px 11px; font-size:12.5px; cursor:pointer; font-family:inherit; }
 .count { margin-left:auto; font-size:12.5px; color:#667085; }
 .empty { background:#fff; border:1px dashed #C9D0DA; border-radius:12px; padding:40px 24px; text-align:center; color:#667085; font-size:14px; }
