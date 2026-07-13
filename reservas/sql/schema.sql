@@ -43,3 +43,22 @@ create table if not exists checkin_status (
   submitted     boolean not null default true,
   primary key (property_name, check_in, check_out)
 );
+
+-- 清掃ステータス＋メモ（依頼先）。未設定=未依頼。同期で消えない。
+create table if not exists cleaning_status (
+  property_name text not null,
+  check_in      date not null,
+  check_out     date not null,
+  status        text not null default 'unrequested', -- unrequested|requested|inhouse
+  memo          text default '',
+  primary key (property_name, check_in, check_out)
+);
+
+-- Bookingが連結した予約を手動で分割する境界日（YYYY-MM-DD, カンマ区切り）。同期で消えない。
+create table if not exists splits (
+  property_name text not null,
+  check_in      date not null,
+  check_out     date not null,
+  boundaries    text not null default '',
+  primary key (property_name, check_in, check_out)
+);

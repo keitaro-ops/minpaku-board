@@ -112,6 +112,16 @@ export default function Dashboard() {
       body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, status, memo }) });
     await load();
   }
+  async function doSplit(r, boundaries) {
+    await fetch("/api/split", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ property_name: r.property_name, check_in: r.split_ci || r.check_in, check_out: r.split_co || r.check_out, boundaries }) });
+    await load(); setSel(null);
+  }
+  async function unSplit(r) {
+    await fetch("/api/split", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ property_name: r.property_name, check_in: r.split_ci || r.check_in, check_out: r.split_co || r.check_out, boundaries: null }) });
+    await load(); setSel(null);
+  }
   async function toggleType(r) {
     const next = r.type === "booking" ? "block" : "booking";
     await fetch("/api/override", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -317,7 +327,7 @@ export default function Dashboard() {
         </main>
       </div>
 
-      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onClean={saveCleaning} />}
+      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onClean={saveCleaning} onSplit={doSplit} onUnsplit={unSplit} />}
       {tagModal && <TagModal tags={tags} propTags={propTags} props={baseProps} onClose={() => setTagModal(false)}
         saveTags={saveTags} savePropTags={savePropTags} />}
     </div>
@@ -448,11 +458,12 @@ function ListView({ rows, sort, onSort, onSel }) {
   );
 }
 
-function Detail({ r, onClose, onToggle, onCheckin, onClean }) {
+function Detail({ r, onClose, onToggle, onCheckin, onClean, onSplit, onUnsplit }) {
   const pf = PLATFORMS[r.platform] || PLATFORMS.airbnb;
   const block = r.type === "block";
   const [cstatus, setCstatus] = useState(r.cleaning_status || "unrequested");
   const [cmemo, setCmemo] = useState(r.cleaning_memo || "");
+  const [splitDate, setSplitDate] = useState("");
   return (
     <div className="ov" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -489,6 +500,24 @@ function Detail({ r, onClose, onToggle, onCheckin, onClean }) {
                 value={cmemo} onChange={(e) => setCmemo(e.target.value)}
                 onBlur={() => onClean(r, cstatus, cmemo)} />
             </div>
+
+            {!r.split_ci ? (
+              <div className="m-split">
+                <div className="m-clean-t">分割（複数の宿泊に分ける）</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input className="m-memo" placeholder="境目の日 例: 2026-07-19（複数はカンマ区切り）"
+                    value={splitDate} onChange={(e) => setSplitDate(e.target.value)} />
+                  <button className="cbtn" style={{ flex: "0 0 auto", padding: "8px 14px" }}
+                    onClick={() => splitDate.trim() && onSplit(r, splitDate.split(",").map((s) => s.trim()).filter(Boolean))}>分割する</button>
+                </div>
+                <div className="hint2">Bookingが連続予約を1件にまとめた時に使用。境目＝前の予約のチェックアウト日（＝次のチェックイン）。</div>
+              </div>
+            ) : (
+              <div className="m-split">
+                <div style={{ fontSize: 12.5, color: "#475467" }}>この宿泊は分割済み（元 {r.split_ci} 〜 {r.split_co}）</div>
+                <button className="m-toggle" style={{ marginTop: 10 }} onClick={() => onUnsplit(r)}>分割を解除して1件に戻す</button>
+              </div>
+            )}
 
             {r.res_url && <a className="m-link" href={r.res_url} target="_blank" rel="noreferrer">予約ページを開く ↗</a>}
             {!r.res_url && r.platform === "booking" && <a className="m-link" href="https://admin.booking.com" target="_blank" rel="noreferrer">Bookingエクストラネットを開く ↗</a>}
@@ -651,6 +680,7 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .m-info.done { background:#EAF6EE; border:1px solid #C5E6D0; color:#2F7D4E; }
 .m-info button { border:1px solid rgba(0,0,0,.12); background:#fff; border-radius:8px; padding:6px 12px; font-size:12px; cursor:pointer; font-family:inherit; white-space:nowrap; }
 .m-clean { margin-top:14px; border:1px solid #E3E7ED; border-radius:10px; padding:12px; }
+.m-split { margin-top:14px; border:1px solid #E3E7ED; border-radius:10px; padding:12px; }
 .m-clean-t { font-size:11px; font-weight:600; color:#8A94A6; text-transform:uppercase; margin-bottom:8px; }
 .m-clean-btns { display:flex; gap:8px; margin-bottom:10px; }
 .cbtn { flex:1; border:1px solid #D8DDE5; background:#fff; border-radius:8px; padding:8px 6px; font-size:12.5px; cursor:pointer; font-family:inherit; }
