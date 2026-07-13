@@ -7,7 +7,9 @@ export async function GET() {
   const rows = await sql`
     select r.property_name, r.area, r.platform,
            coalesce(o.type, r.type) as type,
-           r.check_in, r.check_out, r.nights, r.res_code, r.res_url,
+           to_char(r.check_in,  'YYYY-MM-DD') as check_in,
+           to_char(r.check_out, 'YYYY-MM-DD') as check_out,
+           r.nights, r.res_code, r.res_url,
            coalesce(c.submitted, false) as info_submitted
     from reservations r
     left join overrides o

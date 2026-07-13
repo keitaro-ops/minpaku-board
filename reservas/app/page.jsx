@@ -11,7 +11,7 @@ const PLATFORMS = {
 };
 const WD = ["日", "月", "火", "水", "木", "金", "土"];
 
-const parseDate = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+const parseDate = (s) => { const [y, m, d] = String(s).slice(0, 10).split("-").map(Number); return new Date(y, m - 1, d); };
 const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const dayDiff = (a, b) => Math.round((startOfDay(a) - startOfDay(b)) / DAY_MS);
 const fmtMD = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
