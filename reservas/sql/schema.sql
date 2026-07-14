@@ -62,3 +62,14 @@ create table if not exists splits (
   boundaries    text not null default '',
   primary key (property_name, check_in, check_out)
 );
+
+-- 単独清掃（予約と独立した清掃予定・単一日付）
+create table if not exists cleanings (
+  id            bigserial primary key,
+  property_name text not null,
+  date          date not null,
+  kind          text not null default 'inhouse',  -- inhouse(自社) | outsourced(外注)
+  memo          text default '',
+  created_at    timestamptz not null default now()
+);
+create index if not exists idx_cleanings on cleanings (property_name, date);
