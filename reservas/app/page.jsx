@@ -12,7 +12,7 @@ const PLATFORMS = {
 const WD = ["日", "月", "火", "水", "木", "金", "土"];
 const CLEANK = {
   inhouse: { label: "自社", color: "#0F766E" },
-  outsourced: { label: "外注", color: "#B45309" },
+  outsourced: { label: "外注", color: "#7C3AED" },
 };
 const TAG_COLORS = ["#EF4444", "#F59E0B", "#10B981", "#3B82F6", "#8B5CF6", "#EC4899", "#14B8A6", "#6B7280"];
 
@@ -306,7 +306,7 @@ export default function Dashboard() {
             <div className="lg-row"><span className="swatch hatch" />ブロック（件数外）</div>
             <div className="lg-row"><span className="dotm" style={{ background: "#F59E0B" }} />事前情報 未提出</div>
             <div className="lg-row"><span className="clean-legend" style={{ background: "#0F766E" }} />清掃予定（自社）</div>
-            <div className="lg-row"><span className="clean-legend" style={{ background: "#B45309" }} />清掃予定（外注）</div>
+            <div className="lg-row"><span className="clean-legend" style={{ background: "#7C3AED" }} />清掃予定（外注）</div>
           </div>
           <div className="side-actions">
             <button className="ghost" onClick={manualSync} disabled={syncing}>{syncing ? "同期中…" : "今すぐ同期"}</button>
@@ -707,7 +707,7 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .tl-nowline { position:absolute; top:0; bottom:0; width:2px; background:#F59E0B; z-index:4; }
 .cell { cursor:pointer; }
 .cell:hover { background:#EAF6F2; }
-.cleanmark { position:absolute; bottom:3px; height:15px; border-radius:4px; border:0; display:flex; align-items:center; padding:0 3px; cursor:pointer; overflow:hidden; z-index:3; }
+.cleanmark { position:absolute; bottom:3px; height:15px; border-radius:4px; border:0; display:flex; align-items:center; padding:0 3px; cursor:pointer; overflow:hidden; z-index:3; box-shadow:0 0 0 1.5px #fff, 0 1px 2px rgba(0,0,0,.2); }
 .cleanmark:hover { filter:brightness(1.1); }
 .cleanmark-lbl { font-size:9px; color:#fff; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .clean-legend { width:14px; height:9px; border-radius:3px; display:inline-block; flex:0 0 auto; }
