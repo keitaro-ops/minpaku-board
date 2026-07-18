@@ -22,6 +22,7 @@ const dayDiff = (a, b) => Math.round((startOfDay(a) - startOfDay(b)) / DAY_MS);
 const fmtMD = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
 const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const uid = () => Math.random().toString(36).slice(2, 9);
+const readRole = () => { try { const m = document.cookie.match(/(?:^|; )rb_role=([^;]+)/); return m ? decodeURIComponent(m[1]) : "admin"; } catch { return "admin"; } };
 const mapRows = (rows) => rows.map((x, i) => ({
   ...x, id: i,
   info_submitted: !!x.info_submitted,
@@ -38,6 +39,12 @@ const LS = {
 
 export default function Dashboard() {
   const [today] = useState(() => startOfDay(new Date()));
+  const [role, setRole] = useState("admin");
+  useEffect(() => { const m = document.cookie.match(/(?:^|; )rb_role=([^;]+)/); if (m) setRole(decodeURIComponent(m[1])); }, []);
+  const isAdmin = role === "admin";
+  const isViewer = role === "viewer";
+  const canEdit = role === "admin" || role === "staff";
+  const [propModal, setPropModal] = useState(null);
   const [data, setData] = useState(null);
   const [view, setView] = useState("timeline");
   const [plat, setPlat] = useState({ airbnb: true, booking: true });
@@ -83,8 +90,8 @@ export default function Dashboard() {
       let s = {};
       try { const r = await fetch("/api/settings"); if (r.ok) s = (await r.json()).settings || {}; } catch {}
       const empty = !s || (!s.tags && !s.order && !s.propTags);
-      if (empty) {
-        // 旧: このブラウザのlocalStorage設定を引き継ぐ（消さない）
+      if (empty && readRole() === "admin") {
+        // 旧: このブラウザのlocalStorage設定を引き継ぐ（消さない・管理者のみ）
         const migrated = {
           tags: LS.get("tags", []),
           propTags: normPropTags(LS.get("propTags", {})),
@@ -104,6 +111,7 @@ export default function Dashboard() {
   }, []);
 
   function persist(next) {
+    if (readRole() !== "admin") return;
     const payload = {
       tags: next.tags ?? tags,
       propTags: next.propTags ?? propTags,
@@ -159,6 +167,7 @@ export default function Dashboard() {
     setSyncing(false);
   }
   async function toggleCheckin(r) {
+    if (!canEdit) return;
     setData((d) => d.map((x) => (x.id === r.id ? { ...x, info_submitted: !x.info_submitted } : x)));
     setSel(null);
     await fetch("/api/checkin", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -187,7 +196,26 @@ export default function Dashboard() {
     setCleanSel(null);
     loadCleanings();
   }
+  function toggleTagForProp(name, id) {
+    const cur = propTags[name] || [];
+    const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+    const pt = { ...propTags };
+    if (next.length) pt[name] = next; else delete pt[name];
+    savePropTags(pt);
+  }
+  async function doRename(from, to) {
+    to = (to || "").trim();
+    if (!to || to === from) { setPropModal(null); return; }
+    await fetch("/api/rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from, to }) });
+    const npt = { ...propTags };
+    if (npt[from]) { npt[to] = Array.from(new Set([...(npt[to] || []), ...npt[from]])); delete npt[from]; }
+    const no = order.map((n) => (n === from ? to : n));
+    setPropTags(npt); setOrder(no); persist({ propTags: npt, order: no });
+    setPropModal(null);
+    await fetch("/api/sync", { method: "POST" }); load();
+  }
   async function doSplit(r, boundaries) {
+    if (!isAdmin) return;
     setSel(null);
     await fetch("/api/split", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ property_name: r.property_name, check_in: r.split_ci || r.check_in, check_out: r.split_co || r.check_out, boundaries }) });
@@ -200,6 +228,7 @@ export default function Dashboard() {
     load();
   }
   async function toggleType(r) {
+    if (!isAdmin) return;
     const next = r.type === "booking" ? "block" : "booking";
     setSel(null);
     await fetch("/api/override", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -215,8 +244,16 @@ export default function Dashboard() {
     return [...m.entries()].map(([name, area]) => ({ name, area }));
   }, [data]);
 
+  const viewerHidden = useMemo(() => {
+    if (!isViewer) return new Set();
+    const noCleanIds = tags.filter((t) => t.name === "清掃不要").map((t) => t.id);
+    const hidden = new Set();
+    Object.entries(propTags).forEach(([name, arr]) => { if ((arr || []).some((id) => noCleanIds.includes(id))) hidden.add(name); });
+    return hidden;
+  }, [isViewer, tags, propTags]);
+
   const props = useMemo(() => {
-    let list = [...baseProps];
+    let list = baseProps.filter((p) => !viewerHidden.has(p.name));
     // 保存済みの順序を適用（未登録の新物件は末尾）
     const pos = (n) => { const i = order.indexOf(n); return i === -1 ? 1e9 : i; };
     list.sort((a, b) => pos(a.name) - pos(b.name) || a.name.localeCompare(b.name));
@@ -225,7 +262,7 @@ export default function Dashboard() {
       list.sort((a, b) => tpos(a.name) - tpos(b.name) || pos(a.name) - pos(b.name));
     }
     return list;
-  }, [baseProps, order, groupByTag, propTags, tags]);
+  }, [baseProps, order, groupByTag, propTags, tags, viewerHidden]);
 
   const alertLimit = useMemo(() => new Date(today.getTime() + 5 * DAY_MS), [today]);
   const isAlert = (r) => r.type === "booking" && !r.info_submitted && r.ci >= today && r.ci <= alertLimit;
@@ -236,12 +273,13 @@ export default function Dashboard() {
     return data.filter((r) => {
       if (!plat[r.platform]) return false;
       if (r.type === "block" && !showBlocks) return false;
+      if (viewerHidden.has(r.property_name)) return false;
       if (needInfoOnly && (r.type !== "booking" || r.info_submitted)) return false;
       if (alertOnly && !isAlert(r)) return false;
       if (s && !`${r.property_name} ${r.area || ""}`.toLowerCase().includes(s)) return false;
       return true;
     });
-  }, [data, plat, showBlocks, needInfoOnly, alertOnly, q, today, alertLimit]);
+  }, [data, plat, showBlocks, needInfoOnly, alertOnly, q, today, alertLimit, viewerHidden]);
 
   const stats = useMemo(() => {
     const mStart = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -305,7 +343,7 @@ export default function Dashboard() {
           <div className="logo">◲</div>
           <div>
             <h1>予約統合ボード</h1>
-            <p className="sub">{props.length} 物件 · Airbnb / Booking を統合 · 自動更新中</p>
+            <p className="sub">{props.length} 物件 · {role === "admin" ? "管理者" : role === "staff" ? "運用者" : "閲覧者"}表示{isViewer ? "（見るだけ）" : ""}</p>
           </div>
         </div>
         <div className="chips">
@@ -335,13 +373,15 @@ export default function Dashboard() {
           </FilterGroup>
           <FilterGroup title="清掃">
             <label className="flt"><input type="checkbox" checked={showCleanLabel} onChange={toggleCleanLabel} />清掃のメモを表示</label>
-            <div className="hint2">空いてる日をクリックで清掃を追加。清掃マーカーをクリックで編集・削除。</div>
+            {canEdit && <div className="hint2">空いてる日をクリックで清掃を追加。清掃マーカーをクリックで編集・削除。</div>}
           </FilterGroup>
-          <FilterGroup title="並び替え（自分用）">
-            <label className="flt"><input type="checkbox" checked={groupByTag} onChange={toggleGroup} />タグごとにまとめる</label>
-            <button className="ghost" onClick={() => setTagModal(true)}>タグ設定 / 割り当て</button>
-            <div className="hint2">行の左をドラッグで並び替え（各自のブラウザに保存）</div>
-          </FilterGroup>
+          {isAdmin && (
+            <FilterGroup title="並び替え・タグ（管理者）">
+              <label className="flt"><input type="checkbox" checked={groupByTag} onChange={toggleGroup} />タグごとにまとめる</label>
+              <button className="ghost" onClick={() => setTagModal(true)}>タグを作成 / 一括割当</button>
+              <div className="hint2">物件名をクリックでタグ付け・名前変更。行の左をドラッグで並び替え（全員に共有）。</div>
+            </FilterGroup>
+          )}
           {tags.length > 0 && (
             <div className="legend">
               <div className="lg-t">タグ</div>
@@ -357,8 +397,8 @@ export default function Dashboard() {
             <div className="lg-row"><span className="clean-legend" style={{ background: "#7C3AED" }} />清掃予定（外注）</div>
           </div>
           <div className="side-actions">
-            <button className="ghost" onClick={manualSync} disabled={syncing}>{syncing ? "同期中…" : "今すぐ同期"}</button>
-            <a className="ghost" href="/settings">物件・iCal設定</a>
+            {canEdit && <button className="ghost" onClick={manualSync} disabled={syncing}>{syncing ? "同期中…" : "今すぐ同期"}</button>}
+            {isAdmin && <a className="ghost" href="/settings">物件・iCal設定</a>}
             <button className="ghost" onClick={async () => { await fetch("/api/logout", { method: "POST" }); window.location.href = "/login"; }}>ログアウト</button>
           </div>
         </aside>
@@ -386,23 +426,27 @@ export default function Dashboard() {
             <div className="empty">まだ予約がありません。「物件・iCal設定」でURLを登録し「今すぐ同期」を押してください。</div>
           ) : view === "timeline" ? (
             <Timeline days={days} props={props} rows={filtered} today={today} onSel={setSel}
-              tagsOf={tagsOf} dragName={dragName} onDrop={onDrop} canDrag={!groupByTag} showCleanLabel={showCleanLabel} dayW={dayW} nameW={nameW} scrollRef={scrollRef}
-              cleanings={cleanings} onAddCleaning={(pn, date) => setCleanSel({ property_name: pn, date, kind: "inhouse", memo: "" })} onEditCleaning={(c) => setCleanSel({ ...c })} />
+              tagsOf={tagsOf} dragName={dragName} onDrop={onDrop} canDrag={isAdmin && !groupByTag} showCleanLabel={showCleanLabel} dayW={dayW} nameW={nameW} scrollRef={scrollRef}
+              cleanings={cleanings} canClean={canEdit}
+              onAddCleaning={canEdit ? ((pn, date) => setCleanSel({ property_name: pn, date, kind: "inhouse", memo: "" })) : null}
+              onEditCleaning={canEdit ? ((c) => setCleanSel({ ...c })) : null}
+              onNameClick={isAdmin ? ((p) => setPropModal({ name: p.name, area: p.area })) : null} />
           ) : (
             <ListView rows={listRows} sort={sort} onSort={toggleSort} onSel={setSel} />
           )}
         </main>
       </div>
 
-      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onSplit={doSplit} onUnsplit={unSplit} />}
-      {cleanSel && <CleaningModal sel={cleanSel} onChange={setCleanSel} onSave={saveCleaning} onDelete={deleteCleaning} onClose={() => setCleanSel(null)} />}
-      {tagModal && <TagModal tags={tags} propTags={propTags} props={baseProps} onClose={() => setTagModal(false)}
+      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onSplit={doSplit} onUnsplit={unSplit} canEdit={canEdit} isAdmin={isAdmin} />}
+      {cleanSel && canEdit && <CleaningModal sel={cleanSel} onChange={setCleanSel} onSave={saveCleaning} onDelete={deleteCleaning} onClose={() => setCleanSel(null)} />}
+      {propModal && isAdmin && <PropertyModal p={propModal} tags={tags} propTags={propTags} onToggle={toggleTagForProp} onRename={doRename} onOpenTagModal={() => { setPropModal(null); setTagModal(true); }} onClose={() => setPropModal(null)} />}
+      {tagModal && isAdmin && <TagModal tags={tags} propTags={propTags} props={baseProps} onClose={() => setTagModal(false)}
         saveTags={saveTags} savePropTags={savePropTags} />}
     </div>
   );
 }
 
-function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, canDrag, showCleanLabel, dayW, nameW, scrollRef, cleanings, onAddCleaning, onEditCleaning }) {
+function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, canDrag, showCleanLabel, dayW, nameW, scrollRef, cleanings, canClean, onAddCleaning, onEditCleaning, onNameClick }) {
   const gridW = days.length * dayW;
   const todayIdx = dayDiff(today, days[0]);
   const cleanByProp = {};
@@ -458,7 +502,7 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
                     onDragOver={(e) => canDrag && e.preventDefault()}
                     onDrop={() => onDrop(p.name)}>
                     {canDrag && <span className="grip">⋮⋮</span>}
-                    <div className="nm-wrap">
+                    <div className={"nm-wrap" + (onNameClick ? " clickable-nm" : "")} onClick={() => onNameClick && onNameClick(p)}>
                       <span className="nm">{p.name}</span>
                       {ptags.length > 0 && (
                         <span className="tagchips">
@@ -471,8 +515,9 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
                   <div className="tl-lane" style={{ width: gridW }}>
                     {days.map((d, i) => {
                       const wknd = d.getDay() === 0 || d.getDay() === 6;
-                      return <div key={i} className={"cell" + (wknd ? " wknd" : "")} style={{ width: dayW }}
-                        onClick={() => onAddCleaning(p.name, isoDate(d))} title={`${fmtMD(d)} に清掃を追加`} />;
+                      return <div key={i} className={"cell" + (wknd ? " wknd" : "") + (onAddCleaning ? " addable" : "")} style={{ width: dayW }}
+                        onClick={onAddCleaning ? (() => onAddCleaning(p.name, isoDate(d))) : undefined}
+                        title={onAddCleaning ? `${fmtMD(d)} に清掃を追加` : undefined} />;
                     })}
                     {rs.map((r) => {
                       const off = dayDiff(r.ci, days[0]);
@@ -498,8 +543,8 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
                       const ck = CLEANK[c.kind] || CLEANK.inhouse;
                       return (
                         <button key={"c" + c.id} className="cleanmark"
-                          style={{ left: off * dayW + 2, width: dayW - 4, background: ck.color }}
-                          onClick={(e) => { e.stopPropagation(); onEditCleaning(c); }}
+                          style={{ left: off * dayW + 2, width: dayW - 4, background: ck.color, cursor: onEditCleaning ? "pointer" : "default" }}
+                          onClick={(e) => { e.stopPropagation(); onEditCleaning && onEditCleaning(c); }}
                           title={`清掃 ${ck.label}${c.memo ? " / " + c.memo : ""}（${fmtMD(cd)}）`}>
                           <span className="cleanmark-lbl">🧹{showCleanLabel ? (c.memo || ck.label) : ""}</span>
                         </button>
@@ -546,7 +591,7 @@ function ListView({ rows, sort, onSort, onSel }) {
   );
 }
 
-function Detail({ r, onClose, onToggle, onCheckin, onSplit, onUnsplit }) {
+function Detail({ r, onClose, onToggle, onCheckin, onSplit, onUnsplit, canEdit, isAdmin }) {
   const pf = PLATFORMS[r.platform] || PLATFORMS.airbnb;
   const block = r.type === "block";
   const [splitDate, setSplitDate] = useState("");
@@ -570,10 +615,10 @@ function Detail({ r, onClose, onToggle, onCheckin, onSplit, onUnsplit }) {
           <>
             <div className={"m-info " + (r.info_submitted ? "done" : "todo")}>
               <span>事前チェックイン情報：<b>{r.info_submitted ? "提出済み" : "未提出"}</b></span>
-              <button onClick={() => onCheckin(r)}>{r.info_submitted ? "未提出に戻す" : "提出済みにする"}</button>
+              {canEdit && <button onClick={() => onCheckin(r)}>{r.info_submitted ? "未提出に戻す" : "提出済みにする"}</button>}
             </div>
 
-            {!r.split_ci ? (
+            {isAdmin && (!r.split_ci ? (
               <div className="m-split">
                 <div className="m-clean-t">分割（複数の宿泊に分ける）</div>
                 <div style={{ display: "flex", gap: 8 }}>
@@ -589,13 +634,13 @@ function Detail({ r, onClose, onToggle, onCheckin, onSplit, onUnsplit }) {
                 <div style={{ fontSize: 12.5, color: "#475467" }}>この宿泊は分割済み（元 {r.split_ci} 〜 {r.split_co}）</div>
                 <button className="m-toggle" style={{ marginTop: 10 }} onClick={() => onUnsplit(r)}>分割を解除して1件に戻す</button>
               </div>
-            )}
+            ))}
 
             {r.res_url && <a className="m-link" href={r.res_url} target="_blank" rel="noreferrer">予約ページを開く ↗</a>}
             {!r.res_url && r.platform === "booking" && <a className="m-link" href="https://admin.booking.com" target="_blank" rel="noreferrer">Bookingエクストラネットを開く ↗</a>}
           </>
         )}
-        <button className="m-toggle" onClick={() => onToggle(r)}>{block ? "「予約」に戻す" : "「ブロック」に訂正する"}</button>
+        {isAdmin && <button className="m-toggle" onClick={() => onToggle(r)}>{block ? "「予約」に戻す" : "「ブロック」に訂正する"}</button>}
       </div>
     </div>
   );
@@ -660,6 +705,39 @@ function TagModal({ tags, propTags, props, onClose, saveTags, savePropTags }) {
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function PropertyModal({ p, tags, propTags, onToggle, onRename, onOpenTagModal, onClose }) {
+  const [newName, setNewName] = useState(p.name);
+  const cur = propTags[p.name] || [];
+  return (
+    <div className="ov" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+        <div className="m-top" style={{ borderColor: "#10151D" }}>
+          <b>物件の設定</b><button className="x" onClick={onClose}>✕</button>
+        </div>
+        <h2 style={{ fontSize: 18 }}>{p.name}</h2>
+        <div className="m-prop">{p.area}</div>
+
+        <div className="m-clean-t">タグ（クリックでオン/オフ・複数可）</div>
+        <div className="tg-opts" style={{ justifyContent: "flex-start", marginBottom: 8 }}>
+          {tags.length === 0 && <span className="muted">タグがありません</span>}
+          {tags.map((t) => {
+            const on = cur.includes(t.id);
+            return <button key={t.id} className="tg-opt" style={on ? { background: t.color, borderColor: t.color, color: "#fff" } : { borderColor: t.color, color: t.color }} onClick={() => onToggle(p.name, t.id)}>{t.name}</button>;
+          })}
+        </div>
+        <button className="ghost" style={{ width: "auto", display: "inline-block", marginBottom: 18 }} onClick={onOpenTagModal}>＋ 新しいタグを作る</button>
+
+        <div className="m-clean-t">物件名を変更</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input className="m-memo" value={newName} onChange={(e) => setNewName(e.target.value)} />
+          <button className="tg-addbtn" onClick={() => onRename(p.name, newName)}>変更</button>
+        </div>
+        <p className="hint2" style={{ marginTop: 8 }}>Airbnb/Bookingや清掃・分割の紐付けも一緒に変わります。既存名にすると統合。</p>
       </div>
     </div>
   );
@@ -776,8 +854,11 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .nights { flex:0 0 auto; }
 .bar.block { background:repeating-linear-gradient(45deg,rgba(120,130,145,.10),rgba(120,130,145,.10) 4px,transparent 4px,transparent 8px)!important; border-style:dashed!important; }
 .tl-nowline { position:absolute; top:0; bottom:0; width:2px; background:#F59E0B; z-index:4; }
-.cell { cursor:pointer; }
-.cell:hover { background:#EAF6F2; }
+.cell { }
+.cell.addable { cursor:pointer; }
+.cell.addable:hover { background:#EAF6F2; }
+.clickable-nm { cursor:pointer; }
+.clickable-nm:hover .nm { text-decoration:underline; }
 .cleanmark { position:absolute; bottom:3px; height:15px; border-radius:4px; border:0; display:flex; align-items:center; padding:0 3px; cursor:pointer; overflow:hidden; z-index:3; box-shadow:0 0 0 1.5px #fff, 0 1px 2px rgba(0,0,0,.2); }
 .cleanmark:hover { filter:brightness(1.1); }
 .cleanmark-lbl { font-size:9px; color:#fff; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
