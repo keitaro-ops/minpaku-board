@@ -365,7 +365,8 @@ export default function Dashboard() {
 
       <div className="body">
         <aside className="side">
-          <input className="search" placeholder="物件・エリアを検索" value={q} onChange={(e) => setQ(e.target.value)} />
+          {!isViewer && <input className="search" placeholder="物件・エリアを検索" value={q} onChange={(e) => setQ(e.target.value)} />}
+          {!isViewer && (
           <FilterGroup title="サイト">
             {Object.entries(PLATFORMS).map(([k, v]) => (
               <label key={k} className="flt">
@@ -374,14 +375,19 @@ export default function Dashboard() {
               </label>
             ))}
           </FilterGroup>
+          )}
+          {!isViewer && (
           <FilterGroup title="表示">
             <label className="flt"><input type="checkbox" checked={showBlocks} onChange={() => setShowBlocks((v) => !v)} />ブロックも表示</label>
             <label className="flt"><input type="checkbox" checked={needInfoOnly} onChange={() => setNeedInfoOnly((v) => !v)} />事前情報 未提出のみ</label>
           </FilterGroup>
+          )}
+          {!isViewer && (
           <FilterGroup title="清掃">
             <label className="flt"><input type="checkbox" checked={showCleanLabel} onChange={toggleCleanLabel} />清掃のメモを表示</label>
             {canEdit && <div className="hint2">空いてる日をクリックで清掃を追加。清掃マーカーをクリックで編集・削除。</div>}
           </FilterGroup>
+          )}
           {isAdmin && (
             <FilterGroup title="並び替え・タグ（管理者）">
               <label className="flt"><input type="checkbox" checked={groupByTag} onChange={toggleGroup} />タグごとにまとめる</label>
@@ -389,7 +395,7 @@ export default function Dashboard() {
               <div className="hint2">物件名をクリックでタグ付け・名前変更。行の左をドラッグで並び替え（全員に共有）。</div>
             </FilterGroup>
           )}
-          {tags.length > 0 && (
+          {!isViewer && tags.length > 0 && (
             <div className="legend">
               <div className="lg-t">タグ</div>
               {tags.map((t) => <div key={t.id} className="lg-row"><span className="swatch" style={{ background: t.color }} />{t.name}</div>)}
@@ -432,14 +438,14 @@ export default function Dashboard() {
           {props.length === 0 ? (
             <div className="empty">まだ予約がありません。「物件・iCal設定」でURLを登録し「今すぐ同期」を押してください。</div>
           ) : view === "timeline" ? (
-            <Timeline days={days} props={props} rows={filtered} today={today} onSel={setSel}
+            <Timeline days={days} props={props} rows={filtered} today={today} onSel={isViewer ? null : setSel}
               tagsOf={tagsOf} dragName={dragName} onDrop={onDrop} canDrag={isAdmin && !groupByTag} showCleanLabel={showCleanLabel} dayW={dayW} nameW={nameW} scrollRef={scrollRef}
               cleanings={cleanings} canClean={canEdit}
               onAddCleaning={canEdit ? ((pn, date) => setCleanSel({ property_name: pn, date, kind: "inhouse", memo: "" })) : null}
               onEditCleaning={canEdit ? ((c) => setCleanSel({ ...c })) : null}
               onNameClick={isAdmin ? ((p) => setPropModal({ name: p.name, area: p.area })) : null} />
           ) : (
-            <ListView rows={listRows} sort={sort} onSort={toggleSort} onSel={setSel} />
+            <ListView rows={listRows} sort={sort} onSort={toggleSort} onSel={isViewer ? null : setSel} />
           )}
         </main>
       </div>
@@ -535,8 +541,8 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
                       const block = r.type === "block";
                       return (
                         <button key={r.id} className={"bar" + (block ? " block" : "")}
-                          style={{ left, width, top: 6, height: ROW_H - 20, background: block ? "transparent" : pf.bar, borderColor: block ? "#B6BECB" : pf.bar }}
-                          onClick={() => onSel(r)}
+                          style={{ left, width, top: 6, height: ROW_H - 20, background: block ? "transparent" : pf.bar, borderColor: block ? "#B6BECB" : pf.bar, cursor: onSel ? "pointer" : "default" }}
+                          onClick={() => onSel && onSel(r)}
                           title={`${p.name} ${fmtMD(r.ci)}〜${fmtMD(r.co)}（${r.nights}泊）`}>
                           {!block && !r.info_submitted && <span className="dotm" style={{ background: "#F59E0B" }} />}
                           <span className="bar-lbl" style={{ color: block ? "#5A6472" : "#fff" }}>{block ? "ブロック" : r.nights + "泊"}</span>
@@ -580,7 +586,7 @@ function ListView({ rows, sort, onSort, onSel }) {
           {rows.map((r) => {
             const pf = PLATFORMS[r.platform] || PLATFORMS.airbnb;
             return (
-              <tr key={r.id} className={r.type === "block" ? "blk" : ""} onClick={() => onSel(r)}>
+              <tr key={r.id} className={r.type === "block" ? "blk" : ""} style={{ cursor: onSel ? "pointer" : "default" }} onClick={() => onSel && onSel(r)}>
                 <td className="strong">{r.property_name}</td>
                 <td className="mono">{fmtMD(r.ci)}({WD[r.ci.getDay()]})</td>
                 <td className="mono">{fmtMD(r.co)}({WD[r.co.getDay()]})</td>
