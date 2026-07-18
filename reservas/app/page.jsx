@@ -128,17 +128,24 @@ export default function Dashboard() {
 
   const busy = useRef(false);
   async function load() {
-    if (busy.current) return;          // 同時多重リクエストを防止
+    if (busy.current) return;
     busy.current = true;
     try {
-      const r = await fetch("/api/reservations");
-      if (r.status === 401) { window.location.href = "/login"; return; }
-      const j = await r.json();
-      const rows = j.reservations || [];
-      setData(mapRows(rows));
-      try { localStorage.setItem("mb_resv_cache", JSON.stringify(rows)); } catch {}
-    } catch (e) { /* 失敗時は前回データを維持 */ }
-    finally { busy.current = false; }
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const r = await fetch("/api/reservations");
+          if (r.status === 401) { window.location.href = "/login"; return; }
+          if (!r.ok) throw new Error(String(r.status));
+          const j = await r.json();
+          const rows = j.reservations || [];
+          setData(mapRows(rows));
+          try { localStorage.setItem("mb_resv_cache", JSON.stringify(rows)); } catch {}
+          return;
+        } catch (e) {
+          if (attempt === 0) await new Promise((res) => setTimeout(res, 1500));
+        }
+      }
+    } finally { busy.current = false; }
   }
   // 直近データを即表示（真っ白な待ちを減らす）→ 裏で最新取得
   useEffect(() => {
