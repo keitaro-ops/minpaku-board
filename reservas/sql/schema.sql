@@ -73,3 +73,11 @@ create table if not exists cleanings (
   created_at    timestamptz not null default now()
 );
 create index if not exists idx_cleanings on cleanings (property_name, date);
+
+-- 全員共通の表示設定（タグ・割当・並び順）。1行だけ使う（id=1）。
+create table if not exists board_settings (
+  id    int primary key default 1,
+  data  jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+insert into board_settings (id, data) values (1, '{}'::jsonb) on conflict (id) do nothing;

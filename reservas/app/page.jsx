@@ -43,6 +43,7 @@ export default function Dashboard() {
   const [plat, setPlat] = useState({ airbnb: true, booking: true });
   const [showBlocks, setShowBlocks] = useState(true);
   const [needInfoOnly, setNeedInfoOnly] = useState(false);
+  const [alertOnly, setAlertOnly] = useState(false);
   const [showCleanLabel, setShowCleanLabel] = useState(false);
   const [cleanings, setCleanings] = useState([]);
   const [cleanSel, setCleanSel] = useState(null);
@@ -57,23 +58,64 @@ export default function Dashboard() {
     return d;
   });
 
-  // 個人設定（localStorage）
+  // 共有設定（サーバー保存）：タグ・割当（複数）・並び順・グループ化
   const [order, setOrder] = useState([]);
   const [tags, setTags] = useState([]);
-  const [propTags, setPropTags] = useState({});
+  const [propTags, setPropTags] = useState({}); // { 物件名: [tagId, ...] }
   const [groupByTag, setGroupByTag] = useState(false);
   const [tagModal, setTagModal] = useState(false);
+  const settingsReady = useRef(false);
+
+  // propTags を必ず配列形に正規化（旧: 単一id文字列 → 配列）
+  const normPropTags = (pt) => {
+    const out = {};
+    Object.entries(pt || {}).forEach(([k, v]) => {
+      if (Array.isArray(v)) out[k] = v.filter(Boolean);
+      else if (v) out[k] = [v];
+    });
+    return out;
+  };
+
   useEffect(() => {
-    setOrder(LS.get("order", []));
-    setTags(LS.get("tags", []));
-    setPropTags(LS.get("propTags", {}));
-    setGroupByTag(LS.get("groupByTag", false));
+    // 表示系のローカル設定
     setShowCleanLabel(LS.get("showCleanLabel", false));
+    (async () => {
+      let s = {};
+      try { const r = await fetch("/api/settings"); if (r.ok) s = (await r.json()).settings || {}; } catch {}
+      const empty = !s || (!s.tags && !s.order && !s.propTags);
+      if (empty) {
+        // 旧: このブラウザのlocalStorage設定を引き継ぐ（消さない）
+        const migrated = {
+          tags: LS.get("tags", []),
+          propTags: normPropTags(LS.get("propTags", {})),
+          order: LS.get("order", []),
+          groupByTag: LS.get("groupByTag", false),
+        };
+        setTags(migrated.tags); setPropTags(migrated.propTags);
+        setOrder(migrated.order); setGroupByTag(migrated.groupByTag);
+        settingsReady.current = true;
+        if (migrated.tags.length || migrated.order.length) persist(migrated);
+      } else {
+        setTags(s.tags || []); setPropTags(normPropTags(s.propTags));
+        setOrder(s.order || []); setGroupByTag(!!s.groupByTag);
+        settingsReady.current = true;
+      }
+    })();
   }, []);
-  const saveOrder = (v) => { setOrder(v); LS.set("order", v); };
-  const saveTags = (v) => { setTags(v); LS.set("tags", v); };
-  const savePropTags = (v) => { setPropTags(v); LS.set("propTags", v); };
-  const toggleGroup = () => { const v = !groupByTag; setGroupByTag(v); LS.set("groupByTag", v); };
+
+  function persist(next) {
+    const payload = {
+      tags: next.tags ?? tags,
+      propTags: next.propTags ?? propTags,
+      order: next.order ?? order,
+      groupByTag: next.groupByTag ?? groupByTag,
+    };
+    fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  }
+  const saveOrder = (v) => { setOrder(v); persist({ order: v }); };
+  const saveTags = (v) => { setTags(v); persist({ tags: v }); };
+  const savePropTags = (v) => { setPropTags(v); persist({ propTags: v }); };
+  const toggleGroup = () => { const v = !groupByTag; setGroupByTag(v); persist({ groupByTag: v }); };
   const toggleCleanLabel = () => { const v = !showCleanLabel; setShowCleanLabel(v); LS.set("showCleanLabel", v); };
 
   const busy = useRef(false);
@@ -179,11 +221,14 @@ export default function Dashboard() {
     const pos = (n) => { const i = order.indexOf(n); return i === -1 ? 1e9 : i; };
     list.sort((a, b) => pos(a.name) - pos(b.name) || a.name.localeCompare(b.name));
     if (groupByTag) {
-      const tpos = (n) => { const t = propTags[n]; const i = tags.findIndex((x) => x.id === t); return i === -1 ? 1e9 : i; };
+      const tpos = (n) => { const arr = propTags[n] || []; const i = arr.length ? tags.findIndex((x) => x.id === arr[0]) : -1; return i === -1 ? 1e9 : i; };
       list.sort((a, b) => tpos(a.name) - tpos(b.name) || pos(a.name) - pos(b.name));
     }
     return list;
   }, [baseProps, order, groupByTag, propTags, tags]);
+
+  const alertLimit = useMemo(() => new Date(today.getTime() + 5 * DAY_MS), [today]);
+  const isAlert = (r) => r.type === "booking" && !r.info_submitted && r.ci >= today && r.ci <= alertLimit;
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -192,26 +237,28 @@ export default function Dashboard() {
       if (!plat[r.platform]) return false;
       if (r.type === "block" && !showBlocks) return false;
       if (needInfoOnly && (r.type !== "booking" || r.info_submitted)) return false;
+      if (alertOnly && !isAlert(r)) return false;
       if (s && !`${r.property_name} ${r.area || ""}`.toLowerCase().includes(s)) return false;
       return true;
     });
-  }, [data, plat, showBlocks, needInfoOnly, q]);
+  }, [data, plat, showBlocks, needInfoOnly, alertOnly, q, today, alertLimit]);
 
   const stats = useMemo(() => {
     const mStart = new Date(today.getFullYear(), today.getMonth(), 1);
     const mEnd = new Date(today.getFullYear(), today.getMonth() + 1, 1);
-    let ab = 0, bk = 0, nb = 0, need = 0;
+    let ab = 0, bk = 0, nb = 0, need = 0, alert = 0;
     filtered.forEach((r) => {
       if (r.type !== "booking") return;
       if (r.platform === "airbnb") ab++; else bk++;
       if (!r.info_submitted && r.co >= today) need++;
+      if (isAlert(r)) alert++;
       const a = Math.max(r.ci, mStart), b = Math.min(r.co, mEnd);
       if (b > a) nb += Math.round((b - a) / DAY_MS);
     });
     const monStr = isoDate(mStart), monEnd = isoDate(mEnd);
     const cleanCnt = cleanings.filter((c) => c.date >= monStr && c.date < monEnd).length;
     const cap = Math.max(1, props.length) * Math.round((mEnd - mStart) / DAY_MS);
-    return { ab, bk, total: ab + bk, occ: Math.round((nb / cap) * 100), need, cleanCnt };
+    return { ab, bk, total: ab + bk, occ: Math.round((nb / cap) * 100), need, cleanCnt, alert };
   }, [filtered, props, today, cleanings]);
 
   const days = useMemo(
@@ -246,7 +293,7 @@ export default function Dashboard() {
   }
 
   if (!data) return <div style={{ padding: 40, color: "#667085" }}>読み込み中…</div>;
-  const tagOf = (name) => tags.find((t) => t.id === propTags[name]);
+  const tagsOf = (name) => (propTags[name] || []).map((id) => tags.find((t) => t.id === id)).filter(Boolean);
   const dayW = isMobile ? 34 : 46;
   const nameW = isMobile ? 124 : 220;
 
@@ -262,6 +309,7 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="chips">
+          <Chip color="#DC2626" label="要対応(5日以内 未提出)" value={stats.alert} onClick={() => setAlertOnly((v) => !v)} active={alertOnly} />
           <Chip color="#10151D" label="予約 合計" value={stats.total} />
           <Chip color={PLATFORMS.airbnb.bar} label="Airbnb" value={stats.ab} />
           <Chip color={PLATFORMS.booking.bar} label="Booking" value={stats.bk} />
@@ -338,7 +386,7 @@ export default function Dashboard() {
             <div className="empty">まだ予約がありません。「物件・iCal設定」でURLを登録し「今すぐ同期」を押してください。</div>
           ) : view === "timeline" ? (
             <Timeline days={days} props={props} rows={filtered} today={today} onSel={setSel}
-              tagOf={tagOf} dragName={dragName} onDrop={onDrop} canDrag={!groupByTag} showCleanLabel={showCleanLabel} dayW={dayW} nameW={nameW} scrollRef={scrollRef}
+              tagsOf={tagsOf} dragName={dragName} onDrop={onDrop} canDrag={!groupByTag} showCleanLabel={showCleanLabel} dayW={dayW} nameW={nameW} scrollRef={scrollRef}
               cleanings={cleanings} onAddCleaning={(pn, date) => setCleanSel({ property_name: pn, date, kind: "inhouse", memo: "" })} onEditCleaning={(c) => setCleanSel({ ...c })} />
           ) : (
             <ListView rows={listRows} sort={sort} onSort={toggleSort} onSel={setSel} />
@@ -354,7 +402,7 @@ export default function Dashboard() {
   );
 }
 
-function Timeline({ days, props, rows, today, onSel, tagOf, dragName, onDrop, canDrag, showCleanLabel, dayW, nameW, scrollRef, cleanings, onAddCleaning, onEditCleaning }) {
+function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, canDrag, showCleanLabel, dayW, nameW, scrollRef, cleanings, onAddCleaning, onEditCleaning }) {
   const gridW = days.length * dayW;
   const todayIdx = dayDiff(today, days[0]);
   const cleanByProp = {};
@@ -401,10 +449,10 @@ function Timeline({ days, props, rows, today, onSel, tagOf, dragName, onDrop, ca
             {props.map((p) => {
               const rs = rows.filter((r) => r.property_name === p.name);
               const cnt = rs.filter((r) => r.type === "booking").length;
-              const tag = tagOf(p.name);
+              const ptags = tagsOf(p.name);
               return (
                 <div key={p.name} className="tl-row" style={{ height: ROW_H }}>
-                  <div className="tl-name" style={{ borderLeft: tag ? `4px solid ${tag.color}` : "4px solid transparent", width: nameW, flex: `0 0 ${nameW}px` }}
+                  <div className="tl-name" style={{ borderLeft: ptags[0] ? `4px solid ${ptags[0].color}` : "4px solid transparent", width: nameW, flex: `0 0 ${nameW}px` }}
                     draggable={canDrag}
                     onDragStart={() => { dragName.current = p.name; }}
                     onDragOver={(e) => canDrag && e.preventDefault()}
@@ -412,7 +460,11 @@ function Timeline({ days, props, rows, today, onSel, tagOf, dragName, onDrop, ca
                     {canDrag && <span className="grip">⋮⋮</span>}
                     <div className="nm-wrap">
                       <span className="nm">{p.name}</span>
-                      {tag && <span className="tagchip" style={{ background: tag.color }}>{tag.name}</span>}
+                      {ptags.length > 0 && (
+                        <span className="tagchips">
+                          {ptags.map((t) => <span key={t.id} className="tagchip" style={{ background: t.color }}>{t.name}</span>)}
+                        </span>
+                      )}
                     </div>
                     <span className="cnt-badge mono">{cnt}件</span>
                   </div>
@@ -555,19 +607,25 @@ function TagModal({ tags, propTags, props, onClose, saveTags, savePropTags }) {
   const addTag = () => { if (!name.trim()) return; saveTags([...tags, { id: uid(), name: name.trim(), color }]); setName(""); };
   const delTag = (id) => {
     saveTags(tags.filter((t) => t.id !== id));
-    const pt = { ...propTags }; Object.keys(pt).forEach((k) => { if (pt[k] === id) delete pt[k]; }); savePropTags(pt);
+    const pt = {}; Object.entries(propTags).forEach(([k, arr]) => { const f = (arr || []).filter((x) => x !== id); if (f.length) pt[k] = f; }); savePropTags(pt);
   };
-  const assign = (prop, id) => savePropTags({ ...propTags, [prop]: id || undefined });
+  const toggleAssign = (prop, id) => {
+    const cur = propTags[prop] || [];
+    const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+    const pt = { ...propTags };
+    if (next.length) pt[prop] = next; else delete pt[prop];
+    savePropTags(pt);
+  };
   return (
     <div className="ov" onClick={onClose}>
       <div className="modal wide" onClick={(e) => e.stopPropagation()}>
         <div className="m-top" style={{ borderColor: "#10151D" }}>
-          <b>タグ設定（自分用・この端末に保存）</b>
+          <b>タグ設定（全員共通）</b>
           <button className="x" onClick={onClose}>✕</button>
         </div>
 
         <div className="tg-add">
-          <input placeholder="タグ名（例: 渋谷区 / 港区 / 高稼働）" value={name} onChange={(e) => setName(e.target.value)} />
+          <input placeholder="タグ名（例: 中央区 / 清掃不要 / 高稼働）" value={name} onChange={(e) => setName(e.target.value)} />
           <div className="tg-colors">
             {TAG_COLORS.map((c) => <span key={c} className={"tg-c" + (color === c ? " on" : "")} style={{ background: c }} onClick={() => setColor(c)} />)}
           </div>
@@ -583,15 +641,22 @@ function TagModal({ tags, propTags, props, onClose, saveTags, savePropTags }) {
           {tags.length === 0 && <span className="muted">まだタグがありません</span>}
         </div>
 
-        <div className="tg-assign-t">物件にタグを割り当て</div>
+        <div className="tg-assign-t">物件にタグを割り当て（複数可・クリックでオン/オフ）</div>
         <div className="tg-assign">
           {props.map((p) => (
             <div key={p.name} className="tg-row">
               <span className="tg-pn">{p.name}</span>
-              <select value={propTags[p.name] || ""} onChange={(e) => assign(p.name, e.target.value)}>
-                <option value="">（なし）</option>
-                {tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
+              <div className="tg-opts">
+                {tags.length === 0 && <span className="muted">先にタグを追加</span>}
+                {tags.map((t) => {
+                  const on = (propTags[p.name] || []).includes(t.id);
+                  return (
+                    <button key={t.id} className={"tg-opt" + (on ? " on" : "")}
+                      style={on ? { background: t.color, borderColor: t.color, color: "#fff" } : { borderColor: t.color, color: t.color }}
+                      onClick={() => toggleAssign(p.name, t.id)}>{t.name}</button>
+                  );
+                })}
+              </div>
             </div>
           ))}
         </div>
@@ -627,8 +692,8 @@ function CleaningModal({ sel, onChange, onSave, onDelete, onClose }) {
   );
 }
 
-function Chip({ color, label, value }) {
-  return <div className="stat"><span className="dot" style={{ background: color }} /><div><div className="stat-v mono">{value}</div><div className="stat-l">{label}</div></div></div>;
+function Chip({ color, label, value, onClick, active }) {
+  return <div className={"stat" + (onClick ? " clickable" : "") + (active ? " active" : "")} onClick={onClick}><span className="dot" style={{ background: color }} /><div><div className="stat-v mono">{value}</div><div className="stat-l">{label}</div></div></div>;
 }
 function FilterGroup({ title, children }) { return <div className="fg"><div className="fg-t">{title}</div>{children}</div>; }
 
@@ -646,6 +711,12 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .stat .dot { width:9px; height:9px; border-radius:3px; }
 .stat-v { font-size:16px; font-weight:600; line-height:1; }
 .stat-l { font-size:10.5px; color:#667085; margin-top:3px; }
+.stat.clickable { cursor:pointer; }
+.stat.clickable:hover { background:#EEF1F5; }
+.stat.active { outline:2px solid #DC2626; background:#FEF2F2; }
+.tagchips { display:flex; gap:3px; flex-wrap:nowrap; overflow:hidden; }
+.tg-opts { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+.tg-opt { border:1.5px solid; background:#fff; border-radius:14px; padding:3px 10px; font-size:12px; cursor:pointer; font-family:inherit; }
 .body { display:flex; align-items:flex-start; }
 .side { width:220px; flex:0 0 220px; padding:18px 16px; border-right:1px solid #E3E7ED; background:#fff; min-height:calc(100vh - 74px); }
 .main { flex:1; min-width:0; padding:16px 20px 40px; }
@@ -690,7 +761,7 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .tl-name { width:220px; flex:0 0 220px; padding:0 12px; display:flex; align-items:center; gap:6px; position:sticky; left:0; background:#fff; z-index:2; border-right:1px solid #E3E7ED; }
 .tl-name .nm { font-size:12.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .nm-wrap { flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:2px; overflow:hidden; }
-.tagchip { align-self:flex-start; max-width:100%; font-size:9px; line-height:1.3; font-weight:600; color:#fff; padding:0 5px; border-radius:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tagchip { flex:0 0 auto; max-width:100%; font-size:9px; line-height:1.3; font-weight:600; color:#fff; padding:0 5px; border-radius:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .grip { color:#C3CAD5; cursor:grab; font-size:11px; letter-spacing:-2px; user-select:none; }
 .cnt-badge { font-size:11px; color:#475467; background:#EEF1F5; border-radius:6px; padding:1px 7px; flex-shrink:0; }
 .tl-lane { position:relative; display:flex; }
