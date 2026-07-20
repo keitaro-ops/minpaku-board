@@ -61,7 +61,7 @@ export default function Dashboard() {
   const [syncing, setSyncing] = useState(false);
   const [winStart, setWinStart] = useState(() => {
     const d = startOfDay(new Date());
-    d.setDate(d.getDate() - ((d.getDay() + 6) % 7) - 7);
+    d.setDate(d.getDate() - 3);
     return d;
   });
 
@@ -428,7 +428,7 @@ export default function Dashboard() {
                 <button onClick={() => scrollRef.current?.scrollBy({ left: 7 * dayW, behavior: "smooth" })} title="右へ">▶</button>
                 <span className="nav-sep" />
                 <button onClick={() => setWinStart(new Date(winStart.getTime() - 7 * DAY_MS))}>‹ 前週</button>
-                <button onClick={() => { const d = startOfDay(new Date()); d.setDate(d.getDate() - ((d.getDay() + 6) % 7) - 7); setWinStart(d); }}>今日</button>
+                <button onClick={() => { const d = startOfDay(new Date()); d.setDate(d.getDate() - 3); setWinStart(d); }}>今日</button>
                 <button onClick={() => setWinStart(new Date(winStart.getTime() + 7 * DAY_MS))}>次週 ›</button>
               </div>
             )}
