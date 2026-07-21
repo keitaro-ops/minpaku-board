@@ -26,6 +26,8 @@ const readRole = () => { try { const m = document.cookie.match(/(?:^|; )rb_role=
 const mapRows = (rows) => rows.map((x, i) => ({
   ...x, id: i,
   info_submitted: !!x.info_submitted,
+  ready: !!x.ready,
+  memo: x.memo || "",
   cleaning_status: x.cleaning_status || "unrequested",
   cleaning_memo: x.cleaning_memo || "",
   ci: parseDate(x.check_in), co: parseDate(x.check_out),
@@ -52,6 +54,7 @@ export default function Dashboard() {
   const [needInfoOnly, setNeedInfoOnly] = useState(false);
   const [alertOnly, setAlertOnly] = useState(false);
   const [showCleanLabel, setShowCleanLabel] = useState(false);
+  const [showMemo, setShowMemo] = useState(false);
   const [cleanings, setCleanings] = useState([]);
   const [cleanSel, setCleanSel] = useState(null);
   const [isMobile, setIsMobile] = useState(false);
@@ -86,6 +89,7 @@ export default function Dashboard() {
   useEffect(() => {
     // 表示系のローカル設定
     setShowCleanLabel(LS.get("showCleanLabel", false));
+    setShowMemo(LS.get("showMemo", false));
     (async () => {
       let s = {};
       try { const r = await fetch("/api/settings"); if (r.ok) s = (await r.json()).settings || {}; } catch {}
@@ -125,6 +129,7 @@ export default function Dashboard() {
   const savePropTags = (v) => { setPropTags(v); persist({ propTags: v }); };
   const toggleGroup = () => { const v = !groupByTag; setGroupByTag(v); persist({ groupByTag: v }); };
   const toggleCleanLabel = () => { const v = !showCleanLabel; setShowCleanLabel(v); LS.set("showCleanLabel", v); };
+  const toggleMemo = () => { const v = !showMemo; setShowMemo(v); LS.set("showMemo", v); };
 
   const busy = useRef(false);
   async function load() {
@@ -179,6 +184,21 @@ export default function Dashboard() {
     setSel(null);
     await fetch("/api/checkin", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, submitted: !r.info_submitted }) });
+    load();
+  }
+  async function saveMemo(r, memo) {
+    if (!canEdit) return;
+    setData((d) => d.map((x) => (x.id === r.id ? { ...x, memo } : x)));
+    await fetch("/api/memo", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, memo }) });
+    load();
+  }
+  async function toggleReady(r) {
+    if (!canEdit) return;
+    setData((d) => d.map((x) => (x.id === r.id ? { ...x, ready: !x.ready } : x)));
+    setSel(null);
+    await fetch("/api/ready", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, ready: !r.ready }) });
     load();
   }
   async function loadCleanings() {
@@ -311,6 +331,27 @@ export default function Dashboard() {
     [winStart]
   );
 
+  // 表示左端の日付が属する年度（4月〜翌3月）
+  const fyRange = useMemo(() => {
+    const base = days[0] || today;
+    const y = base.getMonth() >= 3 ? base.getFullYear() : base.getFullYear() - 1;
+    return { start: new Date(y, 3, 1), end: new Date(y + 1, 3, 1), y };
+  }, [days, today]);
+
+  // 物件ごと：年度内の宿泊件数・泊数（Airbnb+Booking合算・ブロック除外）
+  const fyByProp = useMemo(() => {
+    const m = {};
+    (data || []).forEach((r) => {
+      if (r.type !== "booking") return;
+      if (r.ci >= fyRange.start && r.ci < fyRange.end) {
+        (m[r.property_name] ||= { count: 0, nights: 0 });
+        m[r.property_name].count++;
+        m[r.property_name].nights += r.nights;
+      }
+    });
+    return m;
+  }, [data, fyRange]);
+
   const listRows = useMemo(() => {
     const rows = [...filtered];
     const { key, dir } = sort;
@@ -388,6 +429,12 @@ export default function Dashboard() {
             {canEdit && <div className="hint2">空いてる日をクリックで清掃を追加。清掃マーカーをクリックで編集・削除。</div>}
           </FilterGroup>
           )}
+          {!isViewer && (
+          <FilterGroup title="予約メモ">
+            <label className="flt"><input type="checkbox" checked={showMemo} onChange={toggleMemo} />バーにメモを表示</label>
+            <div className="hint2">予約をクリックしてメモを入力（例: IN 12時 早入り）。メモがある予約は📝が付きます。</div>
+          </FilterGroup>
+          )}
           {isAdmin && (
             <FilterGroup title="並び替え・タグ（管理者）">
               <label className="flt"><input type="checkbox" checked={groupByTag} onChange={toggleGroup} />タグごとにまとめる</label>
@@ -406,6 +453,7 @@ export default function Dashboard() {
             <div className="lg-row"><span className="swatch" style={{ background: PLATFORMS.booking.bar }} />Booking 予約</div>
             <div className="lg-row"><span className="swatch hatch" />ブロック（件数外）</div>
             <div className="lg-row"><span className="dotm" style={{ background: "#FFD400" }} />事前情報 未提出</div>
+            <div className="lg-row"><span className="dotm" style={{ background: "#06B6D4" }} />清掃後チェック 未確認</div>
             <div className="lg-row"><span className="clean-legend" style={{ background: "#0F766E" }} />清掃予定（自社）</div>
             <div className="lg-row"><span className="clean-legend" style={{ background: "#7C3AED" }} />清掃予定（外注）</div>
           </div>
@@ -440,7 +488,7 @@ export default function Dashboard() {
           ) : view === "timeline" ? (
             <Timeline days={days} props={props} rows={filtered} today={today} onSel={isViewer ? null : setSel}
               tagsOf={tagsOf} dragName={dragName} onDrop={onDrop} canDrag={isAdmin && !groupByTag} showCleanLabel={showCleanLabel} dayW={dayW} nameW={nameW} scrollRef={scrollRef}
-              cleanings={cleanings} canClean={canEdit}
+              cleanings={cleanings} canClean={canEdit} fyByProp={fyByProp} fyLabel={`${fyRange.y}年度`} showMemo={showMemo}
               onAddCleaning={canEdit ? ((pn, date) => setCleanSel({ property_name: pn, date, kind: "inhouse", memo: "" })) : null}
               onEditCleaning={canEdit ? ((c) => setCleanSel({ ...c })) : null}
               onNameClick={isAdmin ? ((p) => setPropModal({ name: p.name, area: p.area })) : null} />
@@ -450,7 +498,7 @@ export default function Dashboard() {
         </main>
       </div>
 
-      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onSplit={doSplit} onUnsplit={unSplit} canEdit={canEdit} isAdmin={isAdmin} />}
+      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onReady={toggleReady} onMemo={saveMemo} onSplit={doSplit} onUnsplit={unSplit} canEdit={canEdit} isAdmin={isAdmin} />}
       {cleanSel && canEdit && <CleaningModal sel={cleanSel} onChange={setCleanSel} onSave={saveCleaning} onDelete={deleteCleaning} onClose={() => setCleanSel(null)} />}
       {propModal && isAdmin && <PropertyModal p={propModal} tags={tags} propTags={propTags} onToggle={toggleTagForProp} onRename={doRename} onOpenTagModal={() => { setPropModal(null); setTagModal(true); }} onClose={() => setPropModal(null)} />}
       {tagModal && isAdmin && <TagModal tags={tags} propTags={propTags} props={baseProps} onClose={() => setTagModal(false)}
@@ -459,7 +507,7 @@ export default function Dashboard() {
   );
 }
 
-function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, canDrag, showCleanLabel, dayW, nameW, scrollRef, cleanings, canClean, onAddCleaning, onEditCleaning, onNameClick }) {
+function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, canDrag, showCleanLabel, dayW, nameW, scrollRef, cleanings, canClean, onAddCleaning, onEditCleaning, onNameClick, fyByProp, fyLabel, showMemo }) {
   const gridW = days.length * dayW;
   const todayIdx = dayDiff(today, days[0]);
   const cleanByProp = {};
@@ -523,7 +571,7 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
                         </span>
                       )}
                     </div>
-                    <span className="cnt-badge mono">{cnt}件</span>
+                    <span className="cnt-badge mono" title={`${fyLabel}（4月〜3月）の宿泊`}>{(fyByProp[p.name]?.count || 0)}件·{(fyByProp[p.name]?.nights || 0)}泊</span>
                   </div>
                   <div className="tl-lane" style={{ width: gridW }}>
                     {days.map((d, i) => {
@@ -544,8 +592,12 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
                           style={{ left, width, top: 6, height: ROW_H - 20, background: block ? "transparent" : pf.bar, borderColor: block ? "#B6BECB" : pf.bar, cursor: onSel ? "pointer" : "default" }}
                           onClick={() => onSel && onSel(r)}
                           title={`${p.name} ${fmtMD(r.ci)}〜${fmtMD(r.co)}（${r.nights}泊）`}>
-                          {!block && !r.info_submitted && <span className="dotm" style={{ background: "#FFD400" }} />}
-                          <span className="bar-lbl" style={{ color: block ? "#5A6472" : "#fff" }}>{block ? "ブロック" : r.nights + "泊"}</span>
+                          {!block && !r.info_submitted && <span className="dotm" style={{ background: "#FFD400" }} title="事前情報 未提出" />}
+                          {!block && !r.ready && <span className="dotm" style={{ background: "#06B6D4" }} title="清掃後チェック 未確認" />}
+                          {!block && r.memo && !showMemo && <span className="memo-ico" title={r.memo}>📝</span>}
+                          <span className="bar-lbl" style={{ color: block ? "#5A6472" : "#fff" }}>
+                            {block ? "ブロック" : (showMemo && r.memo ? <><span className="nights2">{r.nights}泊</span><span className="clean-memo">📝{r.memo}</span></> : (r.nights + "泊"))}
+                          </span>
                         </button>
                       );
                     })}
@@ -604,10 +656,11 @@ function ListView({ rows, sort, onSort, onSel }) {
   );
 }
 
-function Detail({ r, onClose, onToggle, onCheckin, onSplit, onUnsplit, canEdit, isAdmin }) {
+function Detail({ r, onClose, onToggle, onCheckin, onReady, onMemo, onSplit, onUnsplit, canEdit, isAdmin }) {
   const pf = PLATFORMS[r.platform] || PLATFORMS.airbnb;
   const block = r.type === "block";
   const [splitDate, setSplitDate] = useState("");
+  const [memo, setMemo] = useState(r.memo || "");
   return (
     <div className="ov" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -629,6 +682,21 @@ function Detail({ r, onClose, onToggle, onCheckin, onSplit, onUnsplit, canEdit, 
             <div className={"m-info " + (r.info_submitted ? "done" : "todo")}>
               <span>事前チェックイン情報：<b>{r.info_submitted ? "提出済み" : "未提出"}</b></span>
               {canEdit && <button onClick={() => onCheckin(r)}>{r.info_submitted ? "未提出に戻す" : "提出済みにする"}</button>}
+            </div>
+
+            <div className={"m-info " + (r.ready ? "done" : "todo")}>
+              <span>清掃後チェック（お迎え準備）：<b>{r.ready ? "確認済み" : "未確認"}</b></span>
+              {canEdit && <button onClick={() => onReady(r)}>{r.ready ? "未確認に戻す" : "確認済みにする"}</button>}
+            </div>
+
+            <div className="m-split">
+              <div className="m-clean-t">メモ（アーリーチェックイン等）</div>
+              {canEdit ? (
+                <input className="m-memo" placeholder="例: IN 12時 早入り / 荷物預かりあり"
+                  value={memo} onChange={(e) => setMemo(e.target.value)} onBlur={() => memo !== (r.memo || "") && onMemo(r, memo)} />
+              ) : (
+                <div style={{ fontSize: 13, color: "#344054" }}>{r.memo || "（メモなし）"}</div>
+              )}
             </div>
 
             {isAdmin && (!r.split_ci ? (
@@ -865,6 +933,8 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .inhouse-badge { flex:0 0 auto; background:#fff; color:#10151D; font-size:9px; font-weight:700; line-height:1.4; padding:0 4px; border-radius:3px; }
 .clean-memo { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .nights { flex:0 0 auto; }
+.nights2 { flex:0 0 auto; margin-right:4px; }
+.memo-ico { flex:0 0 auto; font-size:9px; margin-right:2px; }
 .bar.block { background:repeating-linear-gradient(45deg,rgba(120,130,145,.10),rgba(120,130,145,.10) 4px,transparent 4px,transparent 8px)!important; border-style:dashed!important; }
 .tl-nowline { position:absolute; top:0; bottom:0; width:2px; background:#F59E0B; z-index:4; }
 .cell { }

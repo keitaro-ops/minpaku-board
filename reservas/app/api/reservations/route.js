@@ -15,7 +15,7 @@ const key = (n, ci, co) => `${n}|${ci}|${co}`;
 export async function GET() {
   try {
     const sql = db();
-    const [resv, ov, ci, cl, sp] = await Promise.all([
+    const [resv, ov, ci, cl, sp, rd, mm] = await Promise.all([
       sql`select property_name, area, platform, type,
                  to_char(check_in,'YYYY-MM-DD') as check_in,
                  to_char(check_out,'YYYY-MM-DD') as check_out,
@@ -24,12 +24,16 @@ export async function GET() {
       sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, submitted from checkin_status`,
       sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, status, memo from cleaning_status`,
       sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, boundaries from splits`,
+      sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, ready from ready_status`,
+      sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, memo from memo_status`,
     ]);
 
     const ovM = new Map(ov.map((x) => [key(x.property_name, x.check_in, x.check_out), x.type]));
     const ciM = new Map(ci.map((x) => [key(x.property_name, x.check_in, x.check_out), x.submitted]));
     const clM = new Map(cl.map((x) => [key(x.property_name, x.check_in, x.check_out), x]));
     const spM = new Map(sp.map((x) => [key(x.property_name, x.check_in, x.check_out), x.boundaries]));
+    const rdM = new Map(rd.map((x) => [key(x.property_name, x.check_in, x.check_out), x.ready]));
+    const mmM = new Map(mm.map((x) => [key(x.property_name, x.check_in, x.check_out), x.memo]));
 
     const out = [];
     for (const r of resv) {
@@ -56,6 +60,8 @@ export async function GET() {
           check_in: sci, check_out: sco, nights: nights(sci, sco),
           res_code: isSeg ? null : r.res_code, res_url: r.res_url,
           info_submitted: ciM.get(k) ?? false,
+          ready: rdM.get(k) ?? false,
+          memo: mmM.get(k) ?? "",
           cleaning_status: cln ? cln.status : "unrequested",
           cleaning_memo: cln ? cln.memo : "",
           split_ci: isSeg ? r.check_in : null,

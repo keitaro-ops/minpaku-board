@@ -81,3 +81,21 @@ create table if not exists board_settings (
   updated_at timestamptz not null default now()
 );
 insert into board_settings (id, data) values (1, '{}'::jsonb) on conflict (id) do nothing;
+
+-- 清掃後の最終チェック（社内確認済み）。予約単位のオン/オフ。
+create table if not exists ready_status (
+  property_name text not null,
+  check_in  date not null,
+  check_out date not null,
+  ready     boolean not null default false,
+  primary key (property_name, check_in, check_out)
+);
+
+-- 予約バーのメモ（アーリーチェックイン等）。予約単位。
+create table if not exists memo_status (
+  property_name text not null,
+  check_in  date not null,
+  check_out date not null,
+  memo      text not null default '',
+  primary key (property_name, check_in, check_out)
+);
