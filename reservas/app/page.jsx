@@ -358,7 +358,7 @@ export default function Dashboard() {
           <Chip color="#10151D" label="予約 合計" value={stats.total} />
           <Chip color={PLATFORMS.airbnb.bar} label="Airbnb" value={stats.ab} />
           <Chip color={PLATFORMS.booking.bar} label="Booking" value={stats.bk} />
-          <Chip color="#F59E0B" label="事前情報 未提出" value={stats.need} />
+          <Chip color="#FFD400" label="事前情報 未提出" value={stats.need} />
           <Chip color="#0F766E" label="今月 清掃予定" value={stats.cleanCnt} />
         </div>
       </header>
@@ -405,7 +405,7 @@ export default function Dashboard() {
             <div className="lg-row"><span className="swatch" style={{ background: PLATFORMS.airbnb.bar }} />Airbnb 予約</div>
             <div className="lg-row"><span className="swatch" style={{ background: PLATFORMS.booking.bar }} />Booking 予約</div>
             <div className="lg-row"><span className="swatch hatch" />ブロック（件数外）</div>
-            <div className="lg-row"><span className="dotm" style={{ background: "#F59E0B" }} />事前情報 未提出</div>
+            <div className="lg-row"><span className="dotm" style={{ background: "#FFD400" }} />事前情報 未提出</div>
             <div className="lg-row"><span className="clean-legend" style={{ background: "#0F766E" }} />清掃予定（自社）</div>
             <div className="lg-row"><span className="clean-legend" style={{ background: "#7C3AED" }} />清掃予定（外注）</div>
           </div>
@@ -544,7 +544,7 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
                           style={{ left, width, top: 6, height: ROW_H - 20, background: block ? "transparent" : pf.bar, borderColor: block ? "#B6BECB" : pf.bar, cursor: onSel ? "pointer" : "default" }}
                           onClick={() => onSel && onSel(r)}
                           title={`${p.name} ${fmtMD(r.ci)}〜${fmtMD(r.co)}（${r.nights}泊）`}>
-                          {!block && !r.info_submitted && <span className="dotm" style={{ background: "#F59E0B" }} />}
+                          {!block && !r.info_submitted && <span className="dotm" style={{ background: "#FFD400" }} />}
                           <span className="bar-lbl" style={{ color: block ? "#5A6472" : "#fff" }}>{block ? "ブロック" : r.nights + "泊"}</span>
                         </button>
                       );
@@ -799,7 +799,7 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .sub { margin:2px 0 0; font-size:12.5px; color:#667085; }
 .chips { display:flex; gap:10px; flex-wrap:wrap; }
 .stat { display:flex; align-items:center; gap:9px; background:#F7F8FA; border:1px solid #E3E7ED; border-radius:11px; padding:8px 13px; }
-.stat .dot { width:9px; height:9px; border-radius:3px; }
+.stat .dot { width:9px; height:9px; border-radius:3px; box-shadow:0 0 0 1px rgba(0,0,0,.18); }
 .stat-v { font-size:16px; font-weight:600; line-height:1; }
 .stat-l { font-size:10.5px; color:#667085; margin-top:3px; }
 .stat.clickable { cursor:pointer; }
@@ -818,7 +818,7 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .flt input { accent-color:#10151D; }
 .swatch { width:13px; height:13px; border-radius:4px; display:inline-block; flex:0 0 auto; }
 .swatch.hatch { background:repeating-linear-gradient(45deg,#B6BECB,#B6BECB 3px,#fff 3px,#fff 6px); border:1px solid #C3CAD5; }
-.dotm { width:8px; height:8px; border-radius:50%; display:inline-block; flex:0 0 auto; }
+.dotm { width:9px; height:9px; border-radius:50%; display:inline-block; flex:0 0 auto; box-shadow:0 0 0 1.5px #1F2937; }
 .hint2 { font-size:11px; color:#98A2B3; margin-top:6px; line-height:1.5; }
 .selc { width:100%; margin-top:8px; padding:8px 9px; border:1px solid #D8DDE5; border-radius:8px; font-size:12.5px; font-family:inherit; background:#fff; }
 .legend { border-top:1px solid #EDF0F4; padding-top:14px; margin-bottom:14px; }
@@ -860,7 +860,7 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .cell.wknd { background:#FBFAF7; }
 .bar { position:absolute; border-radius:7px; border:1.5px solid transparent; display:flex; align-items:center; gap:3px; padding:0 7px; cursor:pointer; overflow:hidden; transition:transform .08s, box-shadow .08s; }
 .bar:hover { transform:translateY(-1px); box-shadow:0 3px 8px rgba(0,0,0,.18); z-index:3; }
-.bar .dotm { box-shadow:0 0 0 1.5px rgba(255,255,255,.85); }
+.bar .dotm { box-shadow:0 0 0 1.5px #1F2937; }
 .bar-lbl { font-size:11px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:4px; min-width:0; }
 .inhouse-badge { flex:0 0 auto; background:#fff; color:#10151D; font-size:9px; font-weight:700; line-height:1.4; padding:0 4px; border-radius:3px; }
 .clean-memo { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
