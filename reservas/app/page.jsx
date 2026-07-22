@@ -380,8 +380,8 @@ export default function Dashboard() {
 
   if (!data) return <div style={{ padding: 40, color: "#667085" }}>読み込み中…</div>;
   const tagsOf = (name) => (propTags[name] || []).map((id) => tags.find((t) => t.id === id)).filter(Boolean);
-  const dayW = isMobile ? 34 : 46;
-  const nameW = isMobile ? 124 : 220;
+  const dayW = 46;
+  const nameW = 220;
 
   return (
     <div className="app">
@@ -997,8 +997,6 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .tg-row select { border:1px solid #D8DDE5; border-radius:8px; padding:6px 8px; font-size:12.5px; font-family:inherit; }
 .muted { color:#98A2B3; }
 @media (max-width:820px){
-  .body { flex-direction:column; }
-  .side { width:100%; flex:none; min-height:0; border-right:0; border-bottom:1px solid #E3E7ED; }
   .hdr { padding:12px 14px; gap:12px; }
   .hdr h1 { font-size:17px; }
   .sub { font-size:11px; }
@@ -1006,14 +1004,6 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
   .stat-v { font-size:14px; }
   .stat-l { font-size:9.5px; }
   .main { padding:12px 12px 30px; }
-  .tl-day .wd { font-size:9px; }
-  .tl-day .md { font-size:11px; }
-  .tl-mseg { font-size:10.5px; padding-left:6px; }
-  .tl-name .nm { font-size:11.5px; }
-  .tagchip { font-size:8.5px; }
-  .cnt-badge { padding:1px 5px; font-size:10px; }
-  .bar-lbl { font-size:10px; }
   .grip { display:none; }
-  .tl-scroll { max-height:calc(100vh - 210px); }
 }
 `;
