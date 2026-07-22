@@ -99,3 +99,9 @@ create table if not exists memo_status (
   memo      text not null default '',
   primary key (property_name, check_in, check_out)
 );
+
+-- 物件ごとの Google Chat Webhook URL（清掃後チェック通知用）
+create table if not exists chat_webhooks (
+  property_name text primary key,
+  webhook_url   text not null default ''
+);

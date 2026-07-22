@@ -9,13 +9,31 @@ export default function Settings() {
   const [renMsg, setRenMsg] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [hooks, setHooks] = useState({});     // { 物件名: url }
+  const [hookMsg, setHookMsg] = useState("");
 
   async function load() {
     const r = await fetch("/api/feeds");
     if (r.status === 401) { window.location.href = "/login"; return; }
     setFeeds((await r.json()).feeds);
+    try {
+      const h = await fetch("/api/webhooks");
+      if (h.ok) {
+        const map = {};
+        (await h.json()).webhooks.forEach((w) => { map[w.property_name] = w.webhook_url; });
+        setHooks(map);
+      }
+    } catch {}
   }
   useEffect(() => { load(); }, []);
+
+  async function saveHook(name, url) {
+    setHookMsg("保存中…");
+    const r = await fetch("/api/webhooks", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ property_name: name, webhook_url: url }) });
+    const j = await r.json();
+    setHookMsg(r.ok ? `「${name}」のWebhookを保存しました` : "エラー: " + (j.error || ""));
+  }
 
   async function add(e) {
     e.preventDefault(); setBusy(true); setMsg("");
@@ -95,6 +113,22 @@ export default function Settings() {
           既存の物件名を新名にすると「統合」になります（例: 「AJITO203」を「AJITO 203」に）。
         </p>
       </form>
+
+      <div style={{ ...s.card, marginTop: 16 }}>
+        <div style={s.renTitle}>Google Chat 通知（清掃後チェック完了を各部屋へ）</div>
+        <p style={{ ...s.hint, marginTop: 0 }}>各物件のスペースで発行した Webhook URL を貼ると、清掃後チェックを「確認済み」にした時にその部屋へ通知します。空欄で保存すると解除。</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {propNames.map((n) => (
+            <div key={n} style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: 10, alignItems: "center" }}>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{n}{hooks[n] ? " 🔔" : ""}</span>
+              <input style={s.in} placeholder="https://chat.googleapis.com/v1/spaces/... （未設定なら通知なし）"
+                defaultValue={hooks[n] || ""} onBlur={(e) => saveHook(n, e.target.value.trim())} />
+            </div>
+          ))}
+          {propNames.length === 0 && <span style={{ color: "#8A94A6" }}>先に物件（iCal）を登録してください。</span>}
+        </div>
+        {hookMsg && <div style={{ ...s.msg, marginTop: 10 }}>{hookMsg}</div>}
+      </div>
 
       <div style={s.toolbar}>
         <div style={s.count}>{feeds.length} フィード</div>
