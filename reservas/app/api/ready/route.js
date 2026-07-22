@@ -19,7 +19,7 @@ export async function POST(req) {
     try {
       const [hook] = await sql`select webhook_url from chat_webhooks where property_name = ${b.property_name}`;
       if (hook?.webhook_url) {
-        const text = `\u2705 \u3010${b.property_name}\u3011\u6e05\u6383\u5f8c\u30c1\u30a7\u30c3\u30af\u5b8c\u4e86\uff08\u304a\u8fce\u3048\u6e96\u5099OK\uff09\n\u30c1\u30a7\u30c3\u30af\u30a4\u30f3 ${fmtMD(b.check_in)} \u301c ${fmtMD(b.check_out)}`;
+        const text = `\u2705 \u3010${b.property_name}\u3011\u6e05\u6383\u5f8c\u30c1\u30a7\u30c3\u30af\u5b8c\u4e86\n\u30c1\u30a7\u30c3\u30af\u30a4\u30f3 ${fmtMD(b.check_in)} \u301c ${fmtMD(b.check_out)}`;
         await fetch(hook.webhook_url, {
           method: "POST",
           headers: { "Content-Type": "application/json; charset=UTF-8" },
