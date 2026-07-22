@@ -1,7 +1,11 @@
 import { db } from "./db.mjs";
 import { parseICS, mergeFeeds } from "./ical.mjs";
 
-// 全フィードを取得→解析→統合→reservations を入れ替える
+// 案X: 過去分（チェックアウト < 今日）はDBに確定保存して残す。
+// 未来分（チェックアウト >= 今日）だけ iCal 最新で入れ替える。
+// これにより、過ぎた予約は iCal から消えても実績として積み上がる。
+// Booking の手動分割(splits)は読み取り時に適用され、過去の生ブロックは
+// 二度と上書きされないため、分割済みの件数がそのまま固定される。
 export async function runSync() {
   const sql = db();
   const feedRows = await sql`select * from feeds where active = true`;
@@ -27,11 +31,16 @@ export async function runSync() {
   );
 
   const merged = mergeFeeds(feeds);
+  const today = new Date().toISOString().slice(0, 10);
+
+  // 未来分（チェックアウト >= 今日）だけ採用。過去分は iCal 側を無視。
+  const future = merged.filter((r) => r.checkOut.toISOString().slice(0, 10) >= today);
 
   await sql.begin(async (tx) => {
-    await tx`delete from reservations`;
-    if (merged.length) {
-      const payload = merged.map((r) => ({
+    // 未来分のみ削除 → 入れ替え。過去分（check_out < today）はそのまま保持。
+    await tx`delete from reservations where check_out >= ${today}::date`;
+    if (future.length) {
+      const payload = future.map((r) => ({
         property_name: r.propertyName,
         area: r.area || "",
         platform: r.platform,
@@ -47,5 +56,7 @@ export async function runSync() {
     }
   });
 
-  return { feeds: feedRows.length, reservations: merged.length, errors };
+  // 参考: 現在の総件数（過去＋未来）
+  const [{ count }] = await sql`select count(*)::int as count from reservations`;
+  return { feeds: feedRows.length, reservations: count, updatedFuture: future.length, errors };
 }
