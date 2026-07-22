@@ -53,6 +53,7 @@ export default function Dashboard() {
   const [showBlocks, setShowBlocks] = useState(true);
   const [needInfoOnly, setNeedInfoOnly] = useState(false);
   const [alertOnly, setAlertOnly] = useState(false);
+  const [sideOpen, setSideOpen] = useState(false);
   const [showCleanLabel, setShowCleanLabel] = useState(false);
   const [showMemo, setShowMemo] = useState(false);
   const [cleanings, setCleanings] = useState([]);
@@ -380,8 +381,8 @@ export default function Dashboard() {
 
   if (!data) return <div style={{ padding: 40, color: "#667085" }}>読み込み中…</div>;
   const tagsOf = (name) => (propTags[name] || []).map((id) => tags.find((t) => t.id === id)).filter(Boolean);
-  const dayW = 46;
-  const nameW = 220;
+  const dayW = isMobile ? 40 : 46;
+  const nameW = isMobile ? 128 : 220;
 
   return (
     <div className="app">
@@ -405,7 +406,8 @@ export default function Dashboard() {
       </header>
 
       <div className="body">
-        <aside className="side">
+        <button className="side-toggle" onClick={() => setSideOpen((v) => !v)}>{sideOpen ? "✕ 閉じる" : "☰ フィルター・設定"}</button>
+        <aside className={"side" + (sideOpen ? " open" : "")}>
           {!isViewer && <input className="search" placeholder="物件・エリアを検索" value={q} onChange={(e) => setQ(e.target.value)} />}
           {!isViewer && (
           <FilterGroup title="サイト">
@@ -878,6 +880,7 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .tg-opt { border:1.5px solid; background:#fff; border-radius:14px; padding:3px 10px; font-size:12px; cursor:pointer; font-family:inherit; }
 .body { display:flex; align-items:flex-start; }
 .side { width:220px; flex:0 0 220px; padding:18px 16px; border-right:1px solid #E3E7ED; background:#fff; min-height:calc(100vh - 74px); }
+.side-toggle { display:none; }
 .main { flex:1; min-width:0; padding:16px 20px 40px; }
 .search { width:100%; padding:9px 11px; border:1px solid #D8DDE5; border-radius:9px; font-size:13px; margin-bottom:18px; outline:none; }
 .fg { margin-bottom:18px; }
@@ -997,6 +1000,10 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .tg-row select { border:1px solid #D8DDE5; border-radius:8px; padding:6px 8px; font-size:12.5px; font-family:inherit; }
 .muted { color:#98A2B3; }
 @media (max-width:820px){
+  .body { flex-direction:column; }
+  .side-toggle { display:block; margin:10px 12px 0; padding:10px 14px; border:1px solid #D8DDE5; border-radius:10px; background:#fff; font-family:inherit; font-size:13px; font-weight:600; cursor:pointer; }
+  .side { display:none; width:100%; flex:none; min-height:0; border-right:0; border-bottom:1px solid #E3E7ED; max-height:70vh; overflow:auto; }
+  .side.open { display:flex; flex-direction:column; }
   .hdr { padding:12px 14px; gap:12px; }
   .hdr h1 { font-size:17px; }
   .sub { font-size:11px; }
@@ -1004,6 +1011,13 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
   .stat-v { font-size:14px; }
   .stat-l { font-size:9.5px; }
   .main { padding:12px 12px 30px; }
+  .tl-day .wd { font-size:9px; }
+  .tl-day .md { font-size:11px; }
+  .tl-mseg { font-size:10.5px; padding-left:6px; }
+  .tl-name .nm { font-size:11.5px; }
+  .tagchip { font-size:8.5px; }
+  .cnt-badge { padding:1px 5px; font-size:10px; }
+  .bar-lbl { font-size:10px; }
   .grip { display:none; }
 }
 `;
