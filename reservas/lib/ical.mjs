@@ -49,10 +49,13 @@ function parseEvent(block) {
   if (hm) resCode = hm[1];
   else if (resUrl) resCode = resUrl.split("/").filter(Boolean).pop();
 
-  // ブロック判定：予約実体が無く「利用不可」系の要約
-  const blockLike = /(not\s*available|unavailable|blocked|closed\s*-\s*not\s*available|reserved\s*-\s*airbnb\s*\(not\s*available\))/i.test(summary);
-  const hasIdentity = !!resUrl || /reserved/i.test(summary) || (resCode && !blockLike);
-  const type = hasIdentity ? "booking" : blockLike ? "block" : "booking";
+  // ブロック判定：「利用不可」系の要約は、予約URLが無い限り必ずブロック扱い。
+  // 例) Airbnb: "Reserved - Airbnb (Not available)" / Booking: "CLOSED - Not available"
+  //   → "reserved" の語が入っていても Not available があればブロック。
+  const blockLike = /(not\s*available|unavailable|blocked|closed)/i.test(summary);
+  // 予約URL（Airbnbの予約リンク）がある場合のみ、確実な予約実体とみなす
+  const hasIdentity = !!resUrl;
+  const type = blockLike && !hasIdentity ? "block" : "booking";
 
   const nights = Math.max(1, dayDiff(end, start));
   return { uid, summary, checkIn: start, checkOut: end, nights, resUrl, resCode, type };
@@ -84,25 +87,29 @@ export function mergeFeeds(feeds) {
   const booking = feeds.filter((f) => f.platform === "booking");
   const rows = new Map();
 
-  // 1) Airbnb 実予約
+  // 1) Airbnb 実予約（60泊以上は実宿泊ではなく長期ブロックとみなす）
   for (const f of airbnb) {
     for (const ev of f.events) {
       if (ev.type !== "booking") continue;
       rows.set(rangeKey(f.propertyName, ev), {
         propertyName: f.propertyName, area: f.area, platform: "airbnb",
-        ...ev, type: "booking",
+        ...ev, type: ev.nights >= 60 ? "block" : "booking",
       });
     }
   }
   // 2) Booking 枠
+  //    Booking の iCal は予約もブロックも "CLOSED - Not available" で来るため、
+  //    原則は予約として採用する。ただし極端に長い期間（60泊以上）は
+  //    実宿泊ではなく「販売停止（長期ブロック）」とみなして block 扱いにする。
   for (const f of booking) {
     for (const ev of f.events) {
       const k = rangeKey(f.propertyName, ev);
       const existing = rows.get(k);
       if (existing && existing.platform === "airbnb") continue; // Airbnb予約の取込み反映
+      const longSpan = ev.nights >= 60;
       rows.set(k, {
         propertyName: f.propertyName, area: f.area, platform: "booking",
-        ...ev, type: "booking",
+        ...ev, type: longSpan ? "block" : "booking",
       });
     }
   }

@@ -54,6 +54,7 @@ export default function Dashboard() {
   const [needInfoOnly, setNeedInfoOnly] = useState(false);
   const [alertOnly, setAlertOnly] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
+  const [showStats, setShowStats] = useState(false);
   const [showCleanLabel, setShowCleanLabel] = useState(false);
   const [showMemo, setShowMemo] = useState(false);
   const [cleanings, setCleanings] = useState([]);
@@ -437,6 +438,12 @@ export default function Dashboard() {
             <div className="hint2">予約をクリックしてメモを入力（例: IN 12時 早入り）。メモがある予約は📝が付きます。</div>
           </FilterGroup>
           )}
+          {!isViewer && (
+          <FilterGroup title="年度集計">
+            <label className="flt"><input type="checkbox" checked={showStats} onChange={() => setShowStats((v) => !v)} />物件名の横に「件数・泊数」を表示</label>
+            <div className="hint2">4月〜3月の宿泊実績。既定は非表示。</div>
+          </FilterGroup>
+          )}
           {isAdmin && (
             <FilterGroup title="並び替え・タグ（管理者）">
               <label className="flt"><input type="checkbox" checked={groupByTag} onChange={toggleGroup} />タグごとにまとめる</label>
@@ -490,7 +497,7 @@ export default function Dashboard() {
           ) : view === "timeline" ? (
             <Timeline days={days} props={props} rows={filtered} today={today} onSel={isViewer ? null : setSel}
               tagsOf={tagsOf} dragName={dragName} onDrop={onDrop} canDrag={isAdmin && !groupByTag} showCleanLabel={showCleanLabel} dayW={dayW} nameW={nameW} scrollRef={scrollRef}
-              cleanings={cleanings} canClean={canEdit} fyByProp={fyByProp} fyLabel={`${fyRange.y}年度`} showMemo={showMemo}
+              cleanings={cleanings} canClean={canEdit} fyByProp={fyByProp} fyLabel={`${fyRange.y}年度`} showMemo={showMemo} showStats={showStats && !isViewer}
               onAddCleaning={canEdit ? ((pn, date) => setCleanSel({ property_name: pn, date, kind: "inhouse", memo: "" })) : null}
               onEditCleaning={canEdit ? ((c) => setCleanSel({ ...c })) : null}
               onNameClick={isAdmin ? ((p) => setPropModal({ name: p.name, area: p.area })) : null} />
@@ -509,7 +516,7 @@ export default function Dashboard() {
   );
 }
 
-function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, canDrag, showCleanLabel, dayW, nameW, scrollRef, cleanings, canClean, onAddCleaning, onEditCleaning, onNameClick, fyByProp, fyLabel, showMemo }) {
+function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, canDrag, showCleanLabel, dayW, nameW, scrollRef, cleanings, canClean, onAddCleaning, onEditCleaning, onNameClick, fyByProp, fyLabel, showMemo, showStats }) {
   const gridW = days.length * dayW;
   const todayIdx = dayDiff(today, days[0]);
   const cleanByProp = {};
@@ -566,14 +573,24 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
                     onDrop={() => onDrop(p.name)}>
                     {canDrag && <span className="grip">⋮⋮</span>}
                     <div className={"nm-wrap" + (onNameClick ? " clickable-nm" : "")} onClick={() => onNameClick && onNameClick(p)}>
-                      <span className="nm">{p.name}</span>
+                      {(() => {
+                        const i = p.name.lastIndexOf(" ");
+                        const head = i >= 0 ? p.name.slice(0, i) : p.name;
+                        const tail = i >= 0 ? p.name.slice(i + 1) : "";
+                        return (
+                          <span className="nm" title={p.name}>
+                            <span className="nm-head">{head}</span>
+                            {tail && <span className="nm-tail">&nbsp;{tail}</span>}
+                          </span>
+                        );
+                      })()}
                       {ptags.length > 0 && (
                         <span className="tagchips">
                           {ptags.map((t) => <span key={t.id} className="tagchip" style={{ background: t.color }}>{t.name}</span>)}
                         </span>
                       )}
                     </div>
-                    <span className="cnt-badge mono" title={`${fyLabel}（4月〜3月）の宿泊`}>{(fyByProp[p.name]?.count || 0)}件·{(fyByProp[p.name]?.nights || 0)}泊</span>
+                    {showStats && <span className="cnt-badge mono" title={`${fyLabel}（4月〜3月）の宿泊`}>{(fyByProp[p.name]?.count || 0)}件·{(fyByProp[p.name]?.nights || 0)}泊</span>}
                   </div>
                   <div className="tl-lane" style={{ width: gridW }}>
                     {days.map((d, i) => {
@@ -921,7 +938,9 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .tl-day.today .md { color:#B45309; }
 .tl-row { display:flex; border-bottom:1px solid #F0F2F5; }
 .tl-name { width:220px; flex:0 0 220px; padding:0 12px; display:flex; align-items:center; gap:6px; position:sticky; left:0; background:#fff; z-index:2; border-right:1px solid #E3E7ED; }
-.tl-name .nm { font-size:12.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tl-name .nm { font-size:12.5px; font-weight:500; display:flex; align-items:baseline; min-width:0; overflow:hidden; }
+.nm-head { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.nm-tail { flex:0 0 auto; white-space:nowrap; }
 .nm-wrap { flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:2px; overflow:hidden; }
 .tagchip { flex:0 0 auto; max-width:100%; font-size:9px; line-height:1.3; font-weight:600; color:#fff; padding:0 5px; border-radius:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .grip { color:#C3CAD5; cursor:grab; font-size:11px; letter-spacing:-2px; user-select:none; }
