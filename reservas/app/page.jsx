@@ -55,7 +55,7 @@ export default function Dashboard() {
   const [alertOnly, setAlertOnly] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
   const [showStats, setShowStats] = useState(false);
-  const [showCleanLabel, setShowCleanLabel] = useState(false);
+  const [showCleanLabel, setShowCleanLabel] = useState(true);
   const [showMemo, setShowMemo] = useState(false);
   const [cleanings, setCleanings] = useState([]);
   const [cleanSel, setCleanSel] = useState(null);
@@ -90,7 +90,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     // 表示系のローカル設定
-    setShowCleanLabel(LS.get("showCleanLabel", false));
+    setShowCleanLabel(LS.get("showCleanLabel", true));
     setShowMemo(LS.get("showMemo", false));
     (async () => {
       let s = {};
