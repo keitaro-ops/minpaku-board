@@ -515,7 +515,7 @@ export default function Dashboard() {
           ) : view === "timeline" ? (
             <Timeline days={days} props={props} rows={filtered} today={today} onSel={setSel}
               tagsOf={tagsOf} dragName={dragName} onDrop={onDrop} canDrag={isAdmin && !groupByTag} showCleanLabel={showCleanLabel} dayW={dayW} nameW={nameW} scrollRef={scrollRef}
-              cleanings={cleanings} canClean={true} fyByProp={fyByProp} fyLabel={`${fyRange.y}年度`} showMemo={showMemo} showStats={showStats && !isViewer} propNotes={propNotes}
+              cleanings={cleanings} canClean={true} fyByProp={fyByProp} fyLabel={`${fyRange.y}年度`} showMemo={showMemo} showStats={showStats && !isViewer} propNotes={propNotes} showDate={isMobile}
               onAddCleaning={(pn, date) => setCleanSel({ property_name: pn, date, kind: "inhouse", memo: "" })}
               onEditCleaning={(c) => setCleanSel({ ...c })}
               onNameClick={(p) => setPropModal({ name: p.name, area: p.area })} />
@@ -534,7 +534,7 @@ export default function Dashboard() {
   );
 }
 
-function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, canDrag, showCleanLabel, dayW, nameW, scrollRef, cleanings, canClean, onAddCleaning, onEditCleaning, onNameClick, fyByProp, fyLabel, showMemo, showStats, propNotes }) {
+function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, canDrag, showCleanLabel, dayW, nameW, scrollRef, cleanings, canClean, onAddCleaning, onEditCleaning, onNameClick, fyByProp, fyLabel, showMemo, showStats, propNotes, showDate }) {
   const gridW = days.length * dayW;
   const todayIdx = dayDiff(today, days[0]);
   const cleanByProp = {};
@@ -634,7 +634,9 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
                           {!block && !r.ready && <span className="dotm" style={{ background: "#06B6D4" }} title="清掃後チェック 未確認" />}
                           {!block && r.memo && !showMemo && <span className="memo-ico" title={r.memo}>📝</span>}
                           <span className="bar-lbl" style={{ color: block ? "#5A6472" : "#fff" }}>
-                            {block ? "ブロック" : (showMemo && r.memo ? <><span className="nights2">{r.nights}泊</span><span className="clean-memo">📝{r.memo}</span></> : (r.nights + "泊"))}
+                            {block ? "ブロック" : (showMemo && r.memo
+                              ? <><span className="nights2">{showDate ? fmtMD(r.ci) + " " : ""}{r.nights}泊</span><span className="clean-memo">📝{r.memo}</span></>
+                              : (showDate ? `${fmtMD(r.ci)} ${r.nights}泊` : (r.nights + "泊")))}
                           </span>
                         </button>
                       );
@@ -1081,5 +1083,6 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
   .cnt-badge { padding:1px 5px; font-size:10px; }
   .bar-lbl { font-size:10px; }
   .grip { display:none; }
+  .tl-scroll { max-height:none; overscroll-behavior:auto; }
 }
 `;
