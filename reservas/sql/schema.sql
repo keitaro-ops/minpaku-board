@@ -111,3 +111,23 @@ create table if not exists property_notes (
   property_name text primary key,
   note          text not null default ''
 );
+
+-- 清掃業者マスタ
+create table if not exists vendors (
+  id         bigserial primary key,
+  name       text not null,
+  archived   boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+-- 物件×業者の清掃単価（使う組み合わせだけ登録）
+create table if not exists vendor_rates (
+  property_name text not null,
+  vendor_id     bigint not null,
+  price         integer not null default 0,
+  primary key (property_name, vendor_id)
+);
+
+-- 清掃に「業者(vendor_id)」と「承認ステータス」を追加（既存互換のため後付け）
+alter table cleanings add column if not exists vendor_id bigint;
+alter table cleanings add column if not exists status text not null default 'approved';

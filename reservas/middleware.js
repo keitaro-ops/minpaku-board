@@ -27,6 +27,11 @@ export async function middleware(req) {
     const url = req.nextUrl.clone(); url.pathname = "/login"; return NextResponse.redirect(url);
   }
 
+  // 単価(rates)は管理者・運用者のみ（GETも含め制限）
+  if (pathname === "/api/rates" || pathname.startsWith("/api/rates/")) {
+    if (role !== "admin" && role !== "staff") return NextResponse.json({ error: "権限がありません" }, { status: 403 });
+  }
+
   // 権限チェック（書き込み系）
   if (method !== "GET") {
     // 現場(viewer)は一切書き込み不可

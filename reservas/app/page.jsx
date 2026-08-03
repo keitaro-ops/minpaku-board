@@ -63,6 +63,9 @@ export default function Dashboard() {
   const [showCleanLabel, setShowCleanLabel] = useState(true);
   const [showMemo, setShowMemo] = useState(true);
   const [cleanings, setCleanings] = useState([]);
+  const [vendors, setVendors] = useState([]);
+  const [rates, setRates] = useState({});     // { "物件|vendorId": price }
+  const [vendorModal, setVendorModal] = useState(false);
   const [propNotes, setPropNotes] = useState({});
   const [cleanSel, setCleanSel] = useState(null);
   const [isMobile, setIsMobile] = useState(false);
@@ -166,6 +169,8 @@ export default function Dashboard() {
     load();
     loadCleanings();
     loadPropNotes();
+    loadVendors();
+    if (readRole() === "admin" || readRole() === "staff") loadRates();
   }, []);
   // 自動更新：10分ごと（表示中のみ）＋タブ復帰時
   useEffect(() => {
@@ -210,6 +215,28 @@ export default function Dashboard() {
       body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, ready: !r.ready }) });
     load();
   }
+  async function loadVendors() {
+    try { const r = await fetch("/api/vendors"); if (r.ok) setVendors((await r.json()).vendors || []); } catch {}
+  }
+  async function loadRates() {
+    try {
+      const r = await fetch("/api/rates");
+      if (r.ok) { const m = {}; (await r.json()).rates.forEach((x) => { m[`${x.property_name}|${x.vendor_id}`] = x.price; }); setRates(m); }
+    } catch {}
+  }
+  async function addVendor(name) {
+    const r = await fetch("/api/vendors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+    if (r.ok) { const v = (await r.json()).vendor; await loadVendors(); return v; }
+    return null;
+  }
+  async function updateVendor(id, patch) {
+    await fetch("/api/vendors", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
+    loadVendors();
+  }
+  async function saveRate(property_name, vendor_id, price) {
+    setRates((m) => ({ ...m, [`${property_name}|${vendor_id}`]: price }));
+    await fetch("/api/rates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ property_name, vendor_id, price }) });
+  }
   async function loadPropNotes() {
     try {
       const r = await fetch("/api/propnote");
@@ -235,10 +262,10 @@ export default function Dashboard() {
   async function saveCleaning(sel) {
     if (sel.id) {
       await fetch("/api/cleanings", { method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: sel.id, kind: sel.kind, memo: sel.memo }) });
+        body: JSON.stringify({ id: sel.id, kind: sel.kind, memo: sel.memo, vendor_id: sel.vendor_id || null }) });
     } else {
       await fetch("/api/cleanings", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ property_name: sel.property_name, date: sel.date, kind: sel.kind, memo: sel.memo }) });
+        body: JSON.stringify({ property_name: sel.property_name, date: sel.date, kind: sel.kind, memo: sel.memo, vendor_id: sel.vendor_id || null }) });
     }
     setCleanSel(null);
     loadCleanings();
@@ -416,7 +443,7 @@ export default function Dashboard() {
           <div className="logo">◲</div>
           <div>
             <h1>予約統合ボード</h1>
-            <p className="sub">{props.length} 物件 · {role === "admin" ? "管理者" : role === "staff" ? "運用者" : role === "cleanlead" ? "清掃責任者" : "清掃現場"}表示{isViewer ? "（見るだけ）" : ""}</p>
+            <p className="sub">{props.length} 物件 · {role === "admin" ? "管理者" : role === "staff" ? "運用者" : role === "cleanlead" ? "清掃責任者" : "清掃現場"}表示</p>
           </div>
         </div>
         <div className="chips">
@@ -472,6 +499,12 @@ export default function Dashboard() {
               <label className="flt"><input type="checkbox" checked={groupByTag} onChange={toggleGroup} />タグごとにまとめる</label>
               <button className="ghost" onClick={() => setTagModal(true)}>タグを作成 / 一括割当</button>
               <div className="hint2">物件名をクリックでタグ付け・名前変更。行の左をドラッグで並び替え（全員に共有）。</div>
+            </FilterGroup>
+          )}
+          {canEdit && (
+            <FilterGroup title="清掃業者（管理者・運用者）">
+              <button className="ghost" onClick={() => setVendorModal(true)}>清掃業者マスタを編集</button>
+              <div className="hint2">業者の追加・名称変更・アーカイブ。単価は物件名タップで設定。</div>
             </FilterGroup>
           )}
           {!isCleaning && tags.length > 0 && (
@@ -531,8 +564,9 @@ export default function Dashboard() {
       </div>
 
       {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onReady={toggleReady} onMemo={saveMemo} onSplit={doSplit} onUnsplit={unSplit} canEdit={canEdit} isAdmin={isAdmin} isViewer={isCleaning} />}
-      {cleanSel && <CleaningModal sel={cleanSel} onChange={setCleanSel} onSave={saveCleaning} onDelete={deleteCleaning} onClose={() => setCleanSel(null)} />}
-      {propModal && <PropertyModal p={propModal} tags={tags} propTags={propTags} onToggle={toggleTagForProp} onRename={doRename} onOpenTagModal={() => { setPropModal(null); setTagModal(true); }} onClose={() => setPropModal(null)} isAdmin={isAdmin} canEditNote={canEdit} note={propNotes[propModal.name] || ""} onSaveNote={saveNote} />}
+      {cleanSel && <CleaningModal sel={cleanSel} onChange={setCleanSel} onSave={saveCleaning} onDelete={deleteCleaning} onClose={() => setCleanSel(null)} vendors={vendors} onAddVendor={addVendor} canAddVendor={canEdit} />}
+      {vendorModal && <VendorModal vendors={vendors} onAdd={addVendor} onUpdate={updateVendor} onClose={() => setVendorModal(false)} />}
+      {propModal && <PropertyModal p={propModal} tags={tags} propTags={propTags} onToggle={toggleTagForProp} onRename={doRename} onOpenTagModal={() => { setPropModal(null); setTagModal(true); }} onClose={() => setPropModal(null)} isAdmin={isAdmin} canEditNote={canEdit} note={propNotes[propModal.name] || ""} onSaveNote={saveNote} vendors={vendors} rates={rates} onSaveRate={saveRate} showRates={canEdit} />}
       {tagModal && isAdmin && <TagModal tags={tags} propTags={propTags} props={baseProps} onClose={() => setTagModal(false)}
         saveTags={saveTags} savePropTags={savePropTags} />}
     </div>
@@ -650,13 +684,15 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
                       const cd = parseDate(c.date);
                       const off = dayDiff(cd, days[0]);
                       if (off < 0 || off >= days.length) return null;
-                      const ck = CLEANK[c.kind] || CLEANK.inhouse;
+                      const label = c.vendor_name || (CLEANK[c.kind] || CLEANK.inhouse).label;
+                      const color = c.vendor_name ? "#0F766E" : (CLEANK[c.kind] || CLEANK.inhouse).color;
+                      const sub = [label, c.memo].filter(Boolean).join(" / ");
                       return (
                         <button key={"c" + c.id} className="cleanmark"
-                          style={{ left: off * dayW + 2, width: dayW - 4, background: ck.color, cursor: onEditCleaning ? "pointer" : "default" }}
+                          style={{ left: off * dayW + 2, width: dayW - 4, background: color, cursor: onEditCleaning ? "pointer" : "default" }}
                           onClick={(e) => { e.stopPropagation(); onEditCleaning && onEditCleaning(c); }}
-                          title={`清掃 ${ck.label}${c.memo ? " / " + c.memo : ""}（${fmtMD(cd)}）`}>
-                          <span className="cleanmark-lbl">🧹{showCleanLabel ? (c.memo || ck.label) : ""}</span>
+                          title={`清掃 ${sub}（${fmtMD(cd)}）`}>
+                          <span className="cleanmark-lbl">🧹{showCleanLabel ? sub : ""}</span>
                         </button>
                       );
                     })}
@@ -843,13 +879,14 @@ function TagModal({ tags, propTags, props, onClose, saveTags, savePropTags }) {
   );
 }
 
-function PropertyModal({ p, tags, propTags, onToggle, onRename, onOpenTagModal, onClose, isAdmin, canEditNote, note, onSaveNote }) {
+function PropertyModal({ p, tags, propTags, onToggle, onRename, onOpenTagModal, onClose, isAdmin, canEditNote, note, onSaveNote, vendors, rates, onSaveRate, showRates }) {
   const [newName, setNewName] = useState(p.name);
   const [noteVal, setNoteVal] = useState(note || "");
   const cur = propTags[p.name] || [];
+  const activeVendors = (vendors || []).filter((v) => !v.archived);
   return (
     <div className="ov" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
         <div className="m-top" style={{ borderColor: "#10151D" }}>
           <b>物件の情報</b><button className="x" onClick={onClose}>✕</button>
         </div>
@@ -865,6 +902,23 @@ function PropertyModal({ p, tags, propTags, onToggle, onRename, onOpenTagModal, 
           </>
         ) : (
           <div style={{ fontSize: 13.5, color: "#344054", whiteSpace: "pre-wrap", background: "#F7F9FB", border: "1px solid #E3E7ED", borderRadius: 10, padding: 12, minHeight: 44 }}>{note || "（メモなし）"}</div>
+        )}
+
+        {showRates && (
+          <>
+            <div className="m-clean-t" style={{ marginTop: 18 }}>清掃単価（業者別・円）</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {activeVendors.length === 0 && <span className="muted">先に清掃業者を登録してください</span>}
+              {activeVendors.map((v) => (
+                <div key={v.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px", gap: 8, alignItems: "center" }}>
+                  <span style={{ fontSize: 13 }}>{v.name}</span>
+                  <input className="m-memo" type="number" inputMode="numeric" placeholder="未設定"
+                    defaultValue={rates[`${p.name}|${v.id}`] || ""} onBlur={(e) => { const val = e.target.value.trim(); const curv = rates[`${p.name}|${v.id}`] || ""; if (String(val) !== String(curv)) onSaveRate(p.name, v.id, val ? Number(val) : 0); }} />
+                </div>
+              ))}
+            </div>
+            <p className="hint2" style={{ marginTop: 6 }}>この物件で使う業者だけ入力すればOK（空欄=未設定）。</p>
+          </>
         )}
 
         {isAdmin && (
@@ -892,28 +946,73 @@ function PropertyModal({ p, tags, propTags, onToggle, onRename, onOpenTagModal, 
   );
 }
 
-function CleaningModal({ sel, onChange, onSave, onDelete, onClose }) {
+function CleaningModal({ sel, onChange, onSave, onDelete, onClose, vendors, onAddVendor, canAddVendor }) {
+  const [adding, setAdding] = useState(false);
+  const [newV, setNewV] = useState("");
+  const active = (vendors || []).filter((v) => !v.archived);
+  async function add() {
+    if (!newV.trim()) return;
+    const v = await onAddVendor(newV.trim());
+    if (v) onChange({ ...sel, vendor_id: v.id });
+    setNewV(""); setAdding(false);
+  }
   return (
     <div className="ov" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
         <div className="m-top" style={{ borderColor: "#0F766E" }}>
           <span className="tag" style={{ background: "#0F766E" }}>清掃</span>
           <button className="x" onClick={onClose}>✕</button>
         </div>
         <h2 style={{ fontSize: 18 }}>{sel.property_name}</h2>
         <div className="m-prop">{sel.date}{sel.id ? "" : "（新規）"}</div>
-        <div className="m-clean-btns">
-          {Object.entries(CLEANK).map(([k, v]) => (
-            <button key={k} className="cbtn" style={sel.kind === k ? { background: v.color, borderColor: v.color, color: "#fff" } : {}}
-              onClick={() => onChange({ ...sel, kind: k })}>{v.label}</button>
-          ))}
-        </div>
-        <input className="m-memo" style={{ marginTop: 10 }} placeholder="メモ（依頼先など）"
-          value={sel.memo} onChange={(e) => onChange({ ...sel, memo: e.target.value })} />
+
+        <div className="m-clean-t">清掃業者</div>
+        <select className="m-memo" value={sel.vendor_id || ""} onChange={(e) => onChange({ ...sel, vendor_id: e.target.value ? Number(e.target.value) : null })}>
+          <option value="">（未選択）</option>
+          {active.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+        </select>
+        {canAddVendor && !adding && <button className="ghost" style={{ width: "auto", marginTop: 8 }} onClick={() => setAdding(true)}>＋ 新しい業者を追加</button>}
+        {canAddVendor && adding && (
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <input className="m-memo" placeholder="業者名（例: A社 / 自社）" value={newV} onChange={(e) => setNewV(e.target.value)} />
+            <button className="tg-addbtn" onClick={add}>追加</button>
+          </div>
+        )}
+
+        <div className="m-clean-t" style={{ marginTop: 14 }}>特記メモ（任意）</div>
+        <input className="m-memo" placeholder="例: 深夜対応 / 忘れ物あり" value={sel.memo} onChange={(e) => onChange({ ...sel, memo: e.target.value })} />
+
         <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
           <button className="tg-addbtn" style={{ flex: 1 }} onClick={() => onSave(sel)}>保存</button>
           {sel.id && <button className="m-toggle" style={{ marginTop: 0 }} onClick={() => onDelete(sel.id)}>削除</button>}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function VendorModal({ vendors, onAdd, onUpdate, onClose }) {
+  const [name, setName] = useState("");
+  return (
+    <div className="ov" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+        <div className="m-top" style={{ borderColor: "#0F766E" }}>
+          <b>清掃業者マスタ</b><button className="x" onClick={onClose}>✕</button>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+          <input className="m-memo" placeholder="新しい業者名" value={name} onChange={(e) => setName(e.target.value)} />
+          <button className="tg-addbtn" onClick={async () => { if (name.trim()) { await onAdd(name.trim()); setName(""); } }}>追加</button>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 320, overflow: "auto" }}>
+          {vendors.map((v) => (
+            <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 8, opacity: v.archived ? 0.5 : 1 }}>
+              <input className="m-memo" defaultValue={v.name} onBlur={(e) => e.target.value.trim() && e.target.value !== v.name && onUpdate(v.id, { name: e.target.value.trim() })} />
+              <button className="m-toggle" style={{ marginTop: 0, flex: "0 0 auto" }} onClick={() => onUpdate(v.id, { archived: !v.archived })}>{v.archived ? "復活" : "アーカイブ"}</button>
+            </div>
+          ))}
+          {vendors.length === 0 && <span className="muted">業者がまだありません</span>}
+        </div>
+        <p className="hint2" style={{ marginTop: 10 }}>アーカイブすると選択肢から外れます（過去の集計は保持）。</p>
       </div>
     </div>
   );
