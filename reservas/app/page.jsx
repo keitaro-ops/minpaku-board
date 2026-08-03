@@ -58,6 +58,7 @@ export default function Dashboard() {
   const [showCleanLabel, setShowCleanLabel] = useState(true);
   const [showMemo, setShowMemo] = useState(true);
   const [cleanings, setCleanings] = useState([]);
+  const [propNotes, setPropNotes] = useState({});
   const [cleanSel, setCleanSel] = useState(null);
   const [isMobile, setIsMobile] = useState(false);
   const [q, setQ] = useState("");
@@ -159,6 +160,7 @@ export default function Dashboard() {
     try { const c = localStorage.getItem("mb_resv_cache"); if (c) setData(mapRows(JSON.parse(c))); } catch {}
     load();
     loadCleanings();
+    loadPropNotes();
   }, []);
   // 自動更新：10分ごと（表示中のみ）＋タブ復帰時
   useEffect(() => {
@@ -202,6 +204,22 @@ export default function Dashboard() {
     await fetch("/api/ready", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, ready: !r.ready }) });
     load();
+  }
+  async function loadPropNotes() {
+    try {
+      const r = await fetch("/api/propnote");
+      if (r.ok) {
+        const map = {};
+        (await r.json()).notes.forEach((n) => { map[n.property_name] = n.note; });
+        setPropNotes(map);
+      }
+    } catch {}
+  }
+  async function saveNote(name, note) {
+    if (!canEdit) return;
+    setPropNotes((m) => ({ ...m, [name]: note }));
+    await fetch("/api/propnote", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ property_name: name, note }) });
   }
   async function loadCleanings() {
     try {
@@ -497,10 +515,10 @@ export default function Dashboard() {
           ) : view === "timeline" ? (
             <Timeline days={days} props={props} rows={filtered} today={today} onSel={isViewer ? null : setSel}
               tagsOf={tagsOf} dragName={dragName} onDrop={onDrop} canDrag={isAdmin && !groupByTag} showCleanLabel={showCleanLabel} dayW={dayW} nameW={nameW} scrollRef={scrollRef}
-              cleanings={cleanings} canClean={canEdit} fyByProp={fyByProp} fyLabel={`${fyRange.y}年度`} showMemo={showMemo} showStats={showStats && !isViewer}
-              onAddCleaning={canEdit ? ((pn, date) => setCleanSel({ property_name: pn, date, kind: "inhouse", memo: "" })) : null}
-              onEditCleaning={canEdit ? ((c) => setCleanSel({ ...c })) : null}
-              onNameClick={isAdmin ? ((p) => setPropModal({ name: p.name, area: p.area })) : null} />
+              cleanings={cleanings} canClean={true} fyByProp={fyByProp} fyLabel={`${fyRange.y}年度`} showMemo={showMemo} showStats={showStats && !isViewer} propNotes={propNotes}
+              onAddCleaning={(pn, date) => setCleanSel({ property_name: pn, date, kind: "inhouse", memo: "" })}
+              onEditCleaning={(c) => setCleanSel({ ...c })}
+              onNameClick={(p) => setPropModal({ name: p.name, area: p.area })} />
           ) : (
             <ListView rows={listRows} sort={sort} onSort={toggleSort} onSel={isViewer ? null : setSel} />
           )}
@@ -508,15 +526,15 @@ export default function Dashboard() {
       </div>
 
       {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onReady={toggleReady} onMemo={saveMemo} onSplit={doSplit} onUnsplit={unSplit} canEdit={canEdit} isAdmin={isAdmin} />}
-      {cleanSel && canEdit && <CleaningModal sel={cleanSel} onChange={setCleanSel} onSave={saveCleaning} onDelete={deleteCleaning} onClose={() => setCleanSel(null)} />}
-      {propModal && isAdmin && <PropertyModal p={propModal} tags={tags} propTags={propTags} onToggle={toggleTagForProp} onRename={doRename} onOpenTagModal={() => { setPropModal(null); setTagModal(true); }} onClose={() => setPropModal(null)} />}
+      {cleanSel && <CleaningModal sel={cleanSel} onChange={setCleanSel} onSave={saveCleaning} onDelete={deleteCleaning} onClose={() => setCleanSel(null)} />}
+      {propModal && <PropertyModal p={propModal} tags={tags} propTags={propTags} onToggle={toggleTagForProp} onRename={doRename} onOpenTagModal={() => { setPropModal(null); setTagModal(true); }} onClose={() => setPropModal(null)} isAdmin={isAdmin} canEditNote={canEdit} note={propNotes[propModal.name] || ""} onSaveNote={saveNote} />}
       {tagModal && isAdmin && <TagModal tags={tags} propTags={propTags} props={baseProps} onClose={() => setTagModal(false)}
         saveTags={saveTags} savePropTags={savePropTags} />}
     </div>
   );
 }
 
-function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, canDrag, showCleanLabel, dayW, nameW, scrollRef, cleanings, canClean, onAddCleaning, onEditCleaning, onNameClick, fyByProp, fyLabel, showMemo, showStats }) {
+function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, canDrag, showCleanLabel, dayW, nameW, scrollRef, cleanings, canClean, onAddCleaning, onEditCleaning, onNameClick, fyByProp, fyLabel, showMemo, showStats, propNotes }) {
   const gridW = days.length * dayW;
   const todayIdx = dayDiff(today, days[0]);
   const cleanByProp = {};
@@ -581,6 +599,7 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
                           <span className="nm" title={p.name}>
                             <span className="nm-head">{head}</span>
                             {tail && <span className="nm-tail">&nbsp;{tail}</span>}
+                            {propNotes && propNotes[p.name] && <span className="nm-pin" title="建物メモあり">&nbsp;📌</span>}
                           </span>
                         );
                       })()}
@@ -810,34 +829,50 @@ function TagModal({ tags, propTags, props, onClose, saveTags, savePropTags }) {
   );
 }
 
-function PropertyModal({ p, tags, propTags, onToggle, onRename, onOpenTagModal, onClose }) {
+function PropertyModal({ p, tags, propTags, onToggle, onRename, onOpenTagModal, onClose, isAdmin, canEditNote, note, onSaveNote }) {
   const [newName, setNewName] = useState(p.name);
+  const [noteVal, setNoteVal] = useState(note || "");
   const cur = propTags[p.name] || [];
   return (
     <div className="ov" onClick={onClose}>
       <div className="modal" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
         <div className="m-top" style={{ borderColor: "#10151D" }}>
-          <b>物件の設定</b><button className="x" onClick={onClose}>✕</button>
+          <b>物件の情報</b><button className="x" onClick={onClose}>✕</button>
         </div>
         <h2 style={{ fontSize: 18 }}>{p.name}</h2>
         <div className="m-prop">{p.area}</div>
 
-        <div className="m-clean-t">タグ（クリックでオン/オフ・複数可）</div>
-        <div className="tg-opts" style={{ justifyContent: "flex-start", marginBottom: 8 }}>
-          {tags.length === 0 && <span className="muted">タグがありません</span>}
-          {tags.map((t) => {
-            const on = cur.includes(t.id);
-            return <button key={t.id} className="tg-opt" style={on ? { background: t.color, borderColor: t.color, color: "#fff" } : { borderColor: t.color, color: t.color }} onClick={() => onToggle(p.name, t.id)}>{t.name}</button>;
-          })}
-        </div>
-        <button className="ghost" style={{ width: "auto", display: "inline-block", marginBottom: 18 }} onClick={onOpenTagModal}>＋ 新しいタグを作る</button>
+        <div className="m-clean-t">建物メモ（駐車場・鍵の場所など）</div>
+        {canEditNote ? (
+          <>
+            <textarea className="m-memo" style={{ minHeight: 90, resize: "vertical" }} placeholder="例: 駐車場は建物裏の②番。鍵はポスト（暗証0000）。"
+              value={noteVal} onChange={(e) => setNoteVal(e.target.value)} onBlur={() => noteVal !== (note || "") && onSaveNote(p.name, noteVal)} />
+            <p className="hint2" style={{ marginTop: 6 }}>全員（清掃の担当者を含む）が閲覧できます。</p>
+          </>
+        ) : (
+          <div style={{ fontSize: 13.5, color: "#344054", whiteSpace: "pre-wrap", background: "#F7F9FB", border: "1px solid #E3E7ED", borderRadius: 10, padding: 12, minHeight: 44 }}>{note || "（メモなし）"}</div>
+        )}
 
-        <div className="m-clean-t">物件名を変更</div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <input className="m-memo" value={newName} onChange={(e) => setNewName(e.target.value)} />
-          <button className="tg-addbtn" onClick={() => onRename(p.name, newName)}>変更</button>
-        </div>
-        <p className="hint2" style={{ marginTop: 8 }}>Airbnb/Bookingや清掃・分割の紐付けも一緒に変わります。既存名にすると統合。</p>
+        {isAdmin && (
+          <>
+            <div className="m-clean-t" style={{ marginTop: 18 }}>タグ（クリックでオン/オフ・複数可）</div>
+            <div className="tg-opts" style={{ justifyContent: "flex-start", marginBottom: 8 }}>
+              {tags.length === 0 && <span className="muted">タグがありません</span>}
+              {tags.map((t) => {
+                const on = cur.includes(t.id);
+                return <button key={t.id} className="tg-opt" style={on ? { background: t.color, borderColor: t.color, color: "#fff" } : { borderColor: t.color, color: t.color }} onClick={() => onToggle(p.name, t.id)}>{t.name}</button>;
+              })}
+            </div>
+            <button className="ghost" style={{ width: "auto", display: "inline-block", marginBottom: 18 }} onClick={onOpenTagModal}>＋ 新しいタグを作る</button>
+
+            <div className="m-clean-t">物件名を変更</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input className="m-memo" value={newName} onChange={(e) => setNewName(e.target.value)} />
+              <button className="tg-addbtn" onClick={() => onRename(p.name, newName)}>変更</button>
+            </div>
+            <p className="hint2" style={{ marginTop: 8 }}>Airbnb/Bookingや清掃・分割の紐付けも一緒に変わります。既存名にすると統合。</p>
+          </>
+        )}
       </div>
     </div>
   );
@@ -941,6 +976,7 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .tl-name .nm { font-size:12.5px; font-weight:500; display:flex; align-items:baseline; min-width:0; overflow:hidden; }
 .nm-head { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
 .nm-tail { flex:0 0 auto; white-space:nowrap; }
+.nm-pin { flex:0 0 auto; font-size:10px; }
 .nm-wrap { flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:2px; overflow:hidden; }
 .tagchip { flex:0 0 auto; max-width:100%; font-size:9px; line-height:1.3; font-weight:600; color:#fff; padding:0 5px; border-radius:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .grip { color:#C3CAD5; cursor:grab; font-size:11px; letter-spacing:-2px; user-select:none; }

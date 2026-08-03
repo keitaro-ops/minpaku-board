@@ -105,3 +105,9 @@ create table if not exists chat_webhooks (
   property_name text primary key,
   webhook_url   text not null default ''
 );
+
+-- 物件ごとの建物メモ（駐車場・鍵の場所など固定情報）
+create table if not exists property_notes (
+  property_name text primary key,
+  note          text not null default ''
+);

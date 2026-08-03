@@ -29,7 +29,11 @@ export async function middleware(req) {
 
   // 権限チェック（書き込み系）
   if (method !== "GET") {
-    if (role === "viewer") return NextResponse.json({ error: "権限がありません（閲覧のみ）" }, { status: 403 });
+    // 閲覧者（清掃）は清掃予定(cleanings)のみ書き込み可。それ以外の書き込みは不可。
+    if (role === "viewer") {
+      const cleaningOK = pathname === "/api/cleanings" || pathname.startsWith("/api/cleanings/");
+      if (!cleaningOK) return NextResponse.json({ error: "権限がありません（閲覧のみ）" }, { status: 403 });
+    }
     if (ADMIN_ONLY.some((p) => pathname === p || pathname.startsWith(p + "/")) && role !== "admin")
       return NextResponse.json({ error: "権限がありません（管理者のみ）" }, { status: 403 });
   }
