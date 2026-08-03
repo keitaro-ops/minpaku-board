@@ -513,19 +513,19 @@ export default function Dashboard() {
           {props.length === 0 ? (
             <div className="empty">まだ予約がありません。「物件・iCal設定」でURLを登録し「今すぐ同期」を押してください。</div>
           ) : view === "timeline" ? (
-            <Timeline days={days} props={props} rows={filtered} today={today} onSel={isViewer ? null : setSel}
+            <Timeline days={days} props={props} rows={filtered} today={today} onSel={setSel}
               tagsOf={tagsOf} dragName={dragName} onDrop={onDrop} canDrag={isAdmin && !groupByTag} showCleanLabel={showCleanLabel} dayW={dayW} nameW={nameW} scrollRef={scrollRef}
               cleanings={cleanings} canClean={true} fyByProp={fyByProp} fyLabel={`${fyRange.y}年度`} showMemo={showMemo} showStats={showStats && !isViewer} propNotes={propNotes}
               onAddCleaning={(pn, date) => setCleanSel({ property_name: pn, date, kind: "inhouse", memo: "" })}
               onEditCleaning={(c) => setCleanSel({ ...c })}
               onNameClick={(p) => setPropModal({ name: p.name, area: p.area })} />
           ) : (
-            <ListView rows={listRows} sort={sort} onSort={toggleSort} onSel={isViewer ? null : setSel} />
+            <ListView rows={listRows} sort={sort} onSort={toggleSort} onSel={setSel} />
           )}
         </main>
       </div>
 
-      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onReady={toggleReady} onMemo={saveMemo} onSplit={doSplit} onUnsplit={unSplit} canEdit={canEdit} isAdmin={isAdmin} />}
+      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onReady={toggleReady} onMemo={saveMemo} onSplit={doSplit} onUnsplit={unSplit} canEdit={canEdit} isAdmin={isAdmin} isViewer={isViewer} />}
       {cleanSel && <CleaningModal sel={cleanSel} onChange={setCleanSel} onSave={saveCleaning} onDelete={deleteCleaning} onClose={() => setCleanSel(null)} />}
       {propModal && <PropertyModal p={propModal} tags={tags} propTags={propTags} onToggle={toggleTagForProp} onRename={doRename} onOpenTagModal={() => { setPropModal(null); setTagModal(true); }} onClose={() => setPropModal(null)} isAdmin={isAdmin} canEditNote={canEdit} note={propNotes[propModal.name] || ""} onSaveNote={saveNote} />}
       {tagModal && isAdmin && <TagModal tags={tags} propTags={propTags} props={baseProps} onClose={() => setTagModal(false)}
@@ -694,7 +694,7 @@ function ListView({ rows, sort, onSort, onSel }) {
   );
 }
 
-function Detail({ r, onClose, onToggle, onCheckin, onReady, onMemo, onSplit, onUnsplit, canEdit, isAdmin }) {
+function Detail({ r, onClose, onToggle, onCheckin, onReady, onMemo, onSplit, onUnsplit, canEdit, isAdmin, isViewer }) {
   const pf = PLATFORMS[r.platform] || PLATFORMS.airbnb;
   const block = r.type === "block";
   const [splitDate, setSplitDate] = useState("");
@@ -712,10 +712,17 @@ function Detail({ r, onClose, onToggle, onCheckin, onReady, onMemo, onSplit, onU
           <div><dt>チェックイン</dt><dd className="mono">{fmtMD(r.ci)} ({WD[r.ci.getDay()]})</dd></div>
           <div><dt>チェックアウト</dt><dd className="mono">{fmtMD(r.co)} ({WD[r.co.getDay()]})</dd></div>
           <div><dt>泊数</dt><dd className="mono">{r.nights}泊</dd></div>
-          <div><dt>予約コード</dt><dd className="mono">{r.res_code || "—"}</dd></div>
+          {!isViewer && <div><dt>予約コード</dt><dd className="mono">{r.res_code || "—"}</dd></div>}
         </dl>
 
-        {!block && (
+        {isViewer ? (
+          !block && (
+            <div className="m-split">
+              <div className="m-clean-t">メモ</div>
+              <div style={{ fontSize: 13.5, color: "#344054", whiteSpace: "pre-wrap" }}>{r.memo || "（メモなし）"}</div>
+            </div>
+          )
+        ) : !block && (
           <>
             <div className={"m-info " + (r.info_submitted ? "done" : "todo")}>
               <span>事前チェックイン情報：<b>{r.info_submitted ? "提出済み" : "未提出"}</b></span>
