@@ -18,7 +18,7 @@ export async function middleware(req) {
   const token = req.cookies.get("rb_auth")?.value;
   let role = null;
   if (token) {
-    for (const r of ["admin", "staff", "viewer"]) {
+    for (const r of ["admin", "staff", "cleanlead", "viewer"]) {
       if (token === (await tokenFor(r))) { role = r; break; }
     }
   }
@@ -29,10 +29,12 @@ export async function middleware(req) {
 
   // 権限チェック（書き込み系）
   if (method !== "GET") {
-    // 閲覧者（清掃）は清掃予定(cleanings)のみ書き込み可。それ以外の書き込みは不可。
-    if (role === "viewer") {
+    // 現場(viewer)は一切書き込み不可
+    if (role === "viewer") return NextResponse.json({ error: "権限がありません（閲覧のみ）" }, { status: 403 });
+    // 清掃責任者(cleanlead)は清掃予定(cleanings)のみ書き込み可
+    if (role === "cleanlead") {
       const cleaningOK = pathname === "/api/cleanings" || pathname.startsWith("/api/cleanings/");
-      if (!cleaningOK) return NextResponse.json({ error: "権限がありません（閲覧のみ）" }, { status: 403 });
+      if (!cleaningOK) return NextResponse.json({ error: "権限がありません" }, { status: 403 });
     }
     if (ADMIN_ONLY.some((p) => pathname === p || pathname.startsWith(p + "/")) && role !== "admin")
       return NextResponse.json({ error: "権限がありません（管理者のみ）" }, { status: 403 });

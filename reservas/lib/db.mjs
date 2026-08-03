@@ -27,6 +27,7 @@ export function roleForPassword(pw) {
   const admin = process.env.ADMIN_PASSWORD || process.env.DASHBOARD_PASSWORD;
   if (admin && pw === admin) return "admin";
   if (process.env.STAFF_PASSWORD && pw === process.env.STAFF_PASSWORD) return "staff";
+  if (process.env.CLEANING2_PASSWORD && pw === process.env.CLEANING2_PASSWORD) return "cleanlead";
   if (process.env.VIEWER_PASSWORD && pw === process.env.VIEWER_PASSWORD) return "viewer";
   return null;
 }

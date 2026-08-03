@@ -44,8 +44,13 @@ export default function Dashboard() {
   const [role, setRole] = useState("admin");
   useEffect(() => { const m = document.cookie.match(/(?:^|; )rb_role=([^;]+)/); if (m) setRole(decodeURIComponent(m[1])); }, []);
   const isAdmin = role === "admin";
-  const isViewer = role === "viewer";
-  const canEdit = role === "admin" || role === "staff";
+  const isLead = role === "cleanlead";          // 清掃責任者
+  const isViewer = role === "viewer";           // 現場（制限あり）
+  const isCleaning = isLead || isViewer;        // 清掃系（サイドバー簡略・予約編集不可）
+  const canEdit = role === "admin" || role === "staff";   // 予約系の編集
+  const canCleanEdit = role === "admin" || role === "staff" || isLead; // 清掃予定の編集
+  const tapEnabled = !isViewer;                 // 予約タップで詳細/メモを開ける
+  const cleaningVisible = !isViewer;            // 清掃マーカーの表示
   const [propModal, setPropModal] = useState(null);
   const [data, setData] = useState(null);
   const [view, setView] = useState("timeline");
@@ -292,12 +297,12 @@ export default function Dashboard() {
   }, [data]);
 
   const viewerHidden = useMemo(() => {
-    if (!isViewer) return new Set();
+    if (!isCleaning) return new Set();
     const noCleanIds = tags.filter((t) => t.name === "清掃不要").map((t) => t.id);
     const hidden = new Set();
     Object.entries(propTags).forEach(([name, arr]) => { if ((arr || []).some((id) => noCleanIds.includes(id))) hidden.add(name); });
     return hidden;
-  }, [isViewer, tags, propTags]);
+  }, [isCleaning, tags, propTags]);
 
   const props = useMemo(() => {
     let list = baseProps.filter((p) => !viewerHidden.has(p.name));
@@ -411,7 +416,7 @@ export default function Dashboard() {
           <div className="logo">◲</div>
           <div>
             <h1>予約統合ボード</h1>
-            <p className="sub">{props.length} 物件 · {role === "admin" ? "管理者" : role === "staff" ? "運用者" : "閲覧者"}表示{isViewer ? "（見るだけ）" : ""}</p>
+            <p className="sub">{props.length} 物件 · {role === "admin" ? "管理者" : role === "staff" ? "運用者" : role === "cleanlead" ? "清掃責任者" : "清掃現場"}表示{isViewer ? "（見るだけ）" : ""}</p>
           </div>
         </div>
         <div className="chips">
@@ -427,8 +432,8 @@ export default function Dashboard() {
       <div className="body">
         <button className="side-toggle" onClick={() => setSideOpen((v) => !v)}>{sideOpen ? "✕ 閉じる" : "☰ フィルター・設定"}</button>
         <aside className={"side" + (sideOpen ? " open" : "")}>
-          {!isViewer && <input className="search" placeholder="物件・エリアを検索" value={q} onChange={(e) => setQ(e.target.value)} />}
-          {!isViewer && (
+          {!isCleaning && <input className="search" placeholder="物件・エリアを検索" value={q} onChange={(e) => setQ(e.target.value)} />}
+          {!isCleaning && (
           <FilterGroup title="サイト">
             {Object.entries(PLATFORMS).map(([k, v]) => (
               <label key={k} className="flt">
@@ -438,25 +443,25 @@ export default function Dashboard() {
             ))}
           </FilterGroup>
           )}
-          {!isViewer && (
+          {!isCleaning && (
           <FilterGroup title="表示">
             <label className="flt"><input type="checkbox" checked={showBlocks} onChange={() => setShowBlocks((v) => !v)} />ブロックも表示</label>
             <label className="flt"><input type="checkbox" checked={needInfoOnly} onChange={() => setNeedInfoOnly((v) => !v)} />事前情報 未提出のみ</label>
           </FilterGroup>
           )}
-          {!isViewer && (
+          {!isCleaning && (
           <FilterGroup title="清掃">
             <label className="flt"><input type="checkbox" checked={showCleanLabel} onChange={toggleCleanLabel} />清掃のメモを表示</label>
             {canEdit && <div className="hint2">空いてる日をクリックで清掃を追加。清掃マーカーをクリックで編集・削除。</div>}
           </FilterGroup>
           )}
-          {!isViewer && (
+          {!isCleaning && (
           <FilterGroup title="予約メモ">
             <label className="flt"><input type="checkbox" checked={showMemo} onChange={toggleMemo} />バーにメモを表示</label>
             <div className="hint2">予約をクリックしてメモを入力（例: IN 12時 早入り）。メモがある予約は📝が付きます。</div>
           </FilterGroup>
           )}
-          {!isViewer && (
+          {!isCleaning && (
           <FilterGroup title="年度集計">
             <label className="flt"><input type="checkbox" checked={showStats} onChange={() => setShowStats((v) => !v)} />物件名の横に「件数・泊数」を表示</label>
             <div className="hint2">4月〜3月の宿泊実績。既定は非表示。</div>
@@ -469,7 +474,7 @@ export default function Dashboard() {
               <div className="hint2">物件名をクリックでタグ付け・名前変更。行の左をドラッグで並び替え（全員に共有）。</div>
             </FilterGroup>
           )}
-          {!isViewer && tags.length > 0 && (
+          {!isCleaning && tags.length > 0 && (
             <div className="legend">
               <div className="lg-t">タグ</div>
               {tags.map((t) => <div key={t.id} className="lg-row"><span className="swatch" style={{ background: t.color }} />{t.name}</div>)}
@@ -513,19 +518,19 @@ export default function Dashboard() {
           {props.length === 0 ? (
             <div className="empty">まだ予約がありません。「物件・iCal設定」でURLを登録し「今すぐ同期」を押してください。</div>
           ) : view === "timeline" ? (
-            <Timeline days={days} props={props} rows={filtered} today={today} onSel={setSel}
+            <Timeline days={days} props={props} rows={filtered} today={today} onSel={tapEnabled ? setSel : null}
               tagsOf={tagsOf} dragName={dragName} onDrop={onDrop} canDrag={isAdmin && !groupByTag} showCleanLabel={showCleanLabel} dayW={dayW} nameW={nameW} scrollRef={scrollRef}
-              cleanings={cleanings} canClean={true} fyByProp={fyByProp} fyLabel={`${fyRange.y}年度`} showMemo={showMemo} showStats={showStats && !isViewer} propNotes={propNotes} showDate={isMobile}
-              onAddCleaning={(pn, date) => setCleanSel({ property_name: pn, date, kind: "inhouse", memo: "" })}
-              onEditCleaning={(c) => setCleanSel({ ...c })}
+              cleanings={cleaningVisible ? cleanings : []} canClean={canCleanEdit} fyByProp={fyByProp} fyLabel={`${fyRange.y}年度`} showMemo={showMemo} showStats={showStats && !isCleaning} propNotes={propNotes} showDate={isMobile}
+              onAddCleaning={canCleanEdit ? ((pn, date) => setCleanSel({ property_name: pn, date, kind: "inhouse", memo: "" })) : null}
+              onEditCleaning={canCleanEdit ? ((c) => setCleanSel({ ...c })) : null}
               onNameClick={(p) => setPropModal({ name: p.name, area: p.area })} />
           ) : (
-            <ListView rows={listRows} sort={sort} onSort={toggleSort} onSel={setSel} />
+            <ListView rows={listRows} sort={sort} onSort={toggleSort} onSel={tapEnabled ? setSel : null} />
           )}
         </main>
       </div>
 
-      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onReady={toggleReady} onMemo={saveMemo} onSplit={doSplit} onUnsplit={unSplit} canEdit={canEdit} isAdmin={isAdmin} isViewer={isViewer} />}
+      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onReady={toggleReady} onMemo={saveMemo} onSplit={doSplit} onUnsplit={unSplit} canEdit={canEdit} isAdmin={isAdmin} isViewer={isCleaning} />}
       {cleanSel && <CleaningModal sel={cleanSel} onChange={setCleanSel} onSave={saveCleaning} onDelete={deleteCleaning} onClose={() => setCleanSel(null)} />}
       {propModal && <PropertyModal p={propModal} tags={tags} propTags={propTags} onToggle={toggleTagForProp} onRename={doRename} onOpenTagModal={() => { setPropModal(null); setTagModal(true); }} onClose={() => setPropModal(null)} isAdmin={isAdmin} canEditNote={canEdit} note={propNotes[propModal.name] || ""} onSaveNote={saveNote} />}
       {tagModal && isAdmin && <TagModal tags={tags} propTags={propTags} props={baseProps} onClose={() => setTagModal(false)}
