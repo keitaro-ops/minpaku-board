@@ -131,3 +131,9 @@ create table if not exists vendor_rates (
 -- 清掃に「業者(vendor_id)」と「承認ステータス」を追加（既存互換のため後付け）
 alter table cleanings add column if not exists vendor_id bigint;
 alter table cleanings add column if not exists status text not null default 'approved';
+
+-- 清掃業者の並び順
+alter table vendors add column if not exists sort_order integer not null default 0;
+
+-- 物件の住所（建物メモとは別欄）
+alter table property_notes add column if not exists address text not null default '';

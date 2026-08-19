@@ -233,6 +233,10 @@ export default function Dashboard() {
     await fetch("/api/vendors", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
     loadVendors();
   }
+  async function reorderVendors(orderIds) {
+    setVendors((vs) => { const map = new Map(vs.map((v) => [v.id, v])); return orderIds.map((id) => map.get(id)).filter(Boolean); });
+    await fetch("/api/vendors", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ order: orderIds }) });
+  }
   async function saveRate(property_name, vendor_id, price) {
     setRates((m) => ({ ...m, [`${property_name}|${vendor_id}`]: price }));
     await fetch("/api/rates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ property_name, vendor_id, price }) });
@@ -242,16 +246,16 @@ export default function Dashboard() {
       const r = await fetch("/api/propnote");
       if (r.ok) {
         const map = {};
-        (await r.json()).notes.forEach((n) => { map[n.property_name] = n.note; });
+        (await r.json()).notes.forEach((n) => { map[n.property_name] = { note: n.note || "", address: n.address || "" }; });
         setPropNotes(map);
       }
     } catch {}
   }
-  async function saveNote(name, note) {
+  async function saveNote(name, note, address) {
     if (!canEdit) return;
-    setPropNotes((m) => ({ ...m, [name]: note }));
+    setPropNotes((m) => ({ ...m, [name]: { note, address } }));
     await fetch("/api/propnote", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ property_name: name, note }) });
+      body: JSON.stringify({ property_name: name, note, address }) });
   }
   async function loadCleanings() {
     try {
@@ -565,8 +569,8 @@ export default function Dashboard() {
 
       {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onReady={toggleReady} onMemo={saveMemo} onSplit={doSplit} onUnsplit={unSplit} canEdit={canEdit} isAdmin={isAdmin} isViewer={isCleaning} />}
       {cleanSel && <CleaningModal sel={cleanSel} onChange={setCleanSel} onSave={saveCleaning} onDelete={deleteCleaning} onClose={() => setCleanSel(null)} vendors={vendors} onAddVendor={addVendor} canAddVendor={canEdit} />}
-      {vendorModal && <VendorModal vendors={vendors} onAdd={addVendor} onUpdate={updateVendor} onClose={() => setVendorModal(false)} />}
-      {propModal && <PropertyModal p={propModal} tags={tags} propTags={propTags} onToggle={toggleTagForProp} onRename={doRename} onOpenTagModal={() => { setPropModal(null); setTagModal(true); }} onClose={() => setPropModal(null)} isAdmin={isAdmin} canEditNote={canEdit} note={propNotes[propModal.name] || ""} onSaveNote={saveNote} vendors={vendors} rates={rates} onSaveRate={saveRate} showRates={canEdit} />}
+      {vendorModal && <VendorModal vendors={vendors} onAdd={addVendor} onUpdate={updateVendor} onReorder={reorderVendors} onClose={() => setVendorModal(false)} />}
+      {propModal && <PropertyModal p={propModal} tags={tags} propTags={propTags} onToggle={toggleTagForProp} onRename={doRename} onOpenTagModal={() => { setPropModal(null); setTagModal(true); }} onClose={() => setPropModal(null)} isAdmin={isAdmin} canEditNote={canEdit} note={(propNotes[propModal.name] || {}).note || ""} address={(propNotes[propModal.name] || {}).address || ""} onSaveNote={saveNote} vendors={vendors} rates={rates} onSaveRate={saveRate} showRates={canEdit} />}
       {tagModal && isAdmin && <TagModal tags={tags} propTags={propTags} props={baseProps} onClose={() => setTagModal(false)}
         saveTags={saveTags} savePropTags={savePropTags} />}
     </div>
@@ -638,7 +642,7 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
                           <span className="nm" title={p.name}>
                             <span className="nm-head">{head}</span>
                             {tail && <span className="nm-tail">&nbsp;{tail}</span>}
-                            {propNotes && propNotes[p.name] && <span className="nm-pin" title="建物メモあり">&nbsp;📌</span>}
+                            {propNotes && propNotes[p.name] && (propNotes[p.name].note || propNotes[p.name].address) && <span className="nm-pin" title="建物情報あり">&nbsp;📌</span>}
                           </span>
                         );
                       })()}
@@ -879,11 +883,14 @@ function TagModal({ tags, propTags, props, onClose, saveTags, savePropTags }) {
   );
 }
 
-function PropertyModal({ p, tags, propTags, onToggle, onRename, onOpenTagModal, onClose, isAdmin, canEditNote, note, onSaveNote, vendors, rates, onSaveRate, showRates }) {
+function PropertyModal({ p, tags, propTags, onToggle, onRename, onOpenTagModal, onClose, isAdmin, canEditNote, note, address, onSaveNote, vendors, rates, onSaveRate, showRates }) {
   const [newName, setNewName] = useState(p.name);
   const [noteVal, setNoteVal] = useState(note || "");
+  const [addrVal, setAddrVal] = useState(address || "");
   const cur = propTags[p.name] || [];
   const activeVendors = (vendors || []).filter((v) => !v.archived);
+  const mapUrl = (a) => /^https?:\/\//i.test(a.trim()) ? a.trim() : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(a.trim())}`;
+  const commit = (nextNote, nextAddr) => { if (nextNote !== (note || "") || nextAddr !== (address || "")) onSaveNote(p.name, nextNote, nextAddr); };
   return (
     <div className="ov" onClick={onClose}>
       <div className="modal" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
@@ -893,12 +900,21 @@ function PropertyModal({ p, tags, propTags, onToggle, onRename, onOpenTagModal, 
         <h2 style={{ fontSize: 18 }}>{p.name}</h2>
         <div className="m-prop">{p.area}</div>
 
-        <div className="m-clean-t">建物メモ（駐車場・鍵の場所など）</div>
+        <div className="m-clean-t">住所</div>
+        {canEditNote ? (
+          <input className="m-memo" placeholder="例: 札幌市中央区〇〇1-2-3（住所 または GoogleマップのURL）"
+            value={addrVal} onChange={(e) => setAddrVal(e.target.value)} onBlur={() => commit(noteVal, addrVal)} />
+        ) : (
+          address ? <a className="m-link" href={mapUrl(address)} target="_blank" rel="noreferrer">🗺️ {address}（地図を開く ↗）</a> : <div style={{ fontSize: 13, color: "#8A94A6" }}>（住所なし）</div>
+        )}
+        {canEditNote && address && <a className="m-link" href={mapUrl(address)} target="_blank" rel="noreferrer" style={{ marginTop: 4 }}>🗺️ 地図で確認 ↗</a>}
+
+        <div className="m-clean-t" style={{ marginTop: 16 }}>建物メモ（キーボックス番号など）</div>
         {canEditNote ? (
           <>
-            <textarea className="m-memo" style={{ minHeight: 90, resize: "vertical" }} placeholder="例: 駐車場は建物裏の②番。鍵はポスト（暗証0000）。"
-              value={noteVal} onChange={(e) => setNoteVal(e.target.value)} onBlur={() => noteVal !== (note || "") && onSaveNote(p.name, noteVal)} />
-            <p className="hint2" style={{ marginTop: 6 }}>全員（清掃の担当者を含む）が閲覧できます。</p>
+            <textarea className="m-memo" style={{ minHeight: 80, resize: "vertical" }} placeholder="例: キーボックス暗証0000。駐車場は建物裏②番。"
+              value={noteVal} onChange={(e) => setNoteVal(e.target.value)} onBlur={() => commit(noteVal, addrVal)} />
+            <p className="hint2" style={{ marginTop: 6 }}>住所・メモとも、全員（清掃の担当者を含む）が閲覧できます。</p>
           </>
         ) : (
           <div style={{ fontSize: 13.5, color: "#344054", whiteSpace: "pre-wrap", background: "#F7F9FB", border: "1px solid #E3E7ED", borderRadius: 10, padding: 12, minHeight: 44 }}>{note || "（メモなし）"}</div>
@@ -991,11 +1007,18 @@ function CleaningModal({ sel, onChange, onSave, onDelete, onClose, vendors, onAd
   );
 }
 
-function VendorModal({ vendors, onAdd, onUpdate, onClose }) {
+function VendorModal({ vendors, onAdd, onUpdate, onReorder, onClose }) {
   const [name, setName] = useState("");
+  const move = (idx, dir) => {
+    const ids = vendors.map((v) => v.id);
+    const j = idx + dir;
+    if (j < 0 || j >= ids.length) return;
+    [ids[idx], ids[j]] = [ids[j], ids[idx]];
+    onReorder(ids);
+  };
   return (
     <div className="ov" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
         <div className="m-top" style={{ borderColor: "#0F766E" }}>
           <b>清掃業者マスタ</b><button className="x" onClick={onClose}>✕</button>
         </div>
@@ -1003,16 +1026,20 @@ function VendorModal({ vendors, onAdd, onUpdate, onClose }) {
           <input className="m-memo" placeholder="新しい業者名" value={name} onChange={(e) => setName(e.target.value)} />
           <button className="tg-addbtn" onClick={async () => { if (name.trim()) { await onAdd(name.trim()); setName(""); } }}>追加</button>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 320, overflow: "auto" }}>
-          {vendors.map((v) => (
-            <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 8, opacity: v.archived ? 0.5 : 1 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 340, overflow: "auto" }}>
+          {vendors.map((v, idx) => (
+            <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 6, opacity: v.archived ? 0.5 : 1 }}>
+              <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto" }}>
+                <button className="ord-btn" onClick={() => move(idx, -1)} disabled={idx === 0}>▲</button>
+                <button className="ord-btn" onClick={() => move(idx, 1)} disabled={idx === vendors.length - 1}>▼</button>
+              </div>
               <input className="m-memo" defaultValue={v.name} onBlur={(e) => e.target.value.trim() && e.target.value !== v.name && onUpdate(v.id, { name: e.target.value.trim() })} />
               <button className="m-toggle" style={{ marginTop: 0, flex: "0 0 auto" }} onClick={() => onUpdate(v.id, { archived: !v.archived })}>{v.archived ? "復活" : "アーカイブ"}</button>
             </div>
           ))}
           {vendors.length === 0 && <span className="muted">業者がまだありません</span>}
         </div>
-        <p className="hint2" style={{ marginTop: 10 }}>アーカイブすると選択肢から外れます（過去の集計は保持）。</p>
+        <p className="hint2" style={{ marginTop: 10 }}>▲▼で並び替え（単価欄の並びに反映）。アーカイブすると選択肢から外れます（過去の集計は保持）。</p>
       </div>
     </div>
   );
@@ -1090,6 +1117,8 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .nm-head { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
 .nm-tail { flex:0 0 auto; white-space:nowrap; }
 .nm-pin { flex:0 0 auto; font-size:10px; }
+.ord-btn { font-size:9px; line-height:1; padding:2px 5px; border:1px solid #D8DDE5; background:#fff; cursor:pointer; border-radius:4px; }
+.ord-btn:disabled { opacity:.3; cursor:default; }
 .nm-wrap { flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:2px; overflow:hidden; }
 .tagchip { flex:0 0 auto; max-width:100%; font-size:9px; line-height:1.3; font-weight:600; color:#fff; padding:0 5px; border-radius:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .grip { color:#C3CAD5; cursor:grab; font-size:11px; letter-spacing:-2px; user-select:none; }
