@@ -1,0 +1,139 @@
+-- 物件×サイトの iCal フィード
+create table if not exists feeds (
+  id            bigserial primary key,
+  property_name text not null,
+  area          text default '',
+  platform      text not null check (platform in ('airbnb','booking')),
+  ical_url      text not null,
+  active        boolean not null default true,
+  created_at    timestamptz not null default now()
+);
+
+-- 同期で毎回入れ替える予約/ブロック
+create table if not exists reservations (
+  id            bigserial primary key,
+  property_name text not null,
+  area          text default '',
+  platform      text not null,
+  type          text not null,           -- 'booking' | 'block'（自動判定）
+  check_in      date not null,
+  check_out     date not null,
+  nights        int not null,
+  res_code      text,
+  res_url       text,
+  summary       text,
+  synced_at     timestamptz not null default now()
+);
+create index if not exists idx_res_range on reservations (property_name, check_in, check_out);
+
+-- 手動の訂正（例: Booking の手動ブロックを block に直す）。同期で消えない。
+create table if not exists overrides (
+  property_name text not null,
+  check_in      date not null,
+  check_out     date not null,
+  type          text not null check (type in ('booking','block')),
+  primary key (property_name, check_in, check_out)
+);
+
+-- 事前チェックイン情報の提出フラグ（未設定=未提出）。同期で消えない。
+create table if not exists checkin_status (
+  property_name text not null,
+  check_in      date not null,
+  check_out     date not null,
+  submitted     boolean not null default true,
+  primary key (property_name, check_in, check_out)
+);
+
+-- 清掃ステータス＋メモ（依頼先）。未設定=未依頼。同期で消えない。
+create table if not exists cleaning_status (
+  property_name text not null,
+  check_in      date not null,
+  check_out     date not null,
+  status        text not null default 'unrequested', -- unrequested|requested|inhouse
+  memo          text default '',
+  primary key (property_name, check_in, check_out)
+);
+
+-- Bookingが連結した予約を手動で分割する境界日（YYYY-MM-DD, カンマ区切り）。同期で消えない。
+create table if not exists splits (
+  property_name text not null,
+  check_in      date not null,
+  check_out     date not null,
+  boundaries    text not null default '',
+  primary key (property_name, check_in, check_out)
+);
+
+-- 単独清掃（予約と独立した清掃予定・単一日付）
+create table if not exists cleanings (
+  id            bigserial primary key,
+  property_name text not null,
+  date          date not null,
+  kind          text not null default 'inhouse',  -- inhouse(自社) | outsourced(外注)
+  memo          text default '',
+  created_at    timestamptz not null default now()
+);
+create index if not exists idx_cleanings on cleanings (property_name, date);
+
+-- 全員共通の表示設定（タグ・割当・並び順）。1行だけ使う（id=1）。
+create table if not exists board_settings (
+  id    int primary key default 1,
+  data  jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+insert into board_settings (id, data) values (1, '{}'::jsonb) on conflict (id) do nothing;
+
+-- 清掃後の最終チェック（社内確認済み）。予約単位のオン/オフ。
+create table if not exists ready_status (
+  property_name text not null,
+  check_in  date not null,
+  check_out date not null,
+  ready     boolean not null default false,
+  primary key (property_name, check_in, check_out)
+);
+
+-- 予約バーのメモ（アーリーチェックイン等）。予約単位。
+create table if not exists memo_status (
+  property_name text not null,
+  check_in  date not null,
+  check_out date not null,
+  memo      text not null default '',
+  primary key (property_name, check_in, check_out)
+);
+
+-- 物件ごとの Google Chat Webhook URL（清掃後チェック通知用）
+create table if not exists chat_webhooks (
+  property_name text primary key,
+  webhook_url   text not null default ''
+);
+
+-- 物件ごとの建物メモ（駐車場・鍵の場所など固定情報）
+create table if not exists property_notes (
+  property_name text primary key,
+  note          text not null default ''
+);
+
+-- 清掃業者マスタ
+create table if not exists vendors (
+  id         bigserial primary key,
+  name       text not null,
+  archived   boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+-- 物件×業者の清掃単価（使う組み合わせだけ登録）
+create table if not exists vendor_rates (
+  property_name text not null,
+  vendor_id     bigint not null,
+  price         integer not null default 0,
+  primary key (property_name, vendor_id)
+);
+
+-- 清掃に「業者(vendor_id)」と「承認ステータス」を追加（既存互換のため後付け）
+alter table cleanings add column if not exists vendor_id bigint;
+alter table cleanings add column if not exists status text not null default 'approved';
+
+-- 清掃業者の並び順
+alter table vendors add column if not exists sort_order integer not null default 0;
+
+-- 物件の住所（建物メモとは別欄）
+alter table property_notes add column if not exists address text not null default '';
