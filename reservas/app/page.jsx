@@ -508,7 +508,7 @@ export default function Dashboard() {
           {canEdit && (
             <FilterGroup title="清掃業者（管理者・運用者）">
               <button className="ghost" onClick={() => setVendorModal(true)}>清掃業者マスタを編集</button>
-              <a className="ghost" href="/billing" style={{ display: "block", textAlign: "center", textDecoration: "none" }}>清掃費 月次集計を開く</a>
+              <a className="ghost" href="/billing">清掃費 月次集計を開く</a>
               <div className="hint2">業者の追加・名称変更・アーカイブ。単価は物件名タップで設定。</div>
             </FilterGroup>
           )}

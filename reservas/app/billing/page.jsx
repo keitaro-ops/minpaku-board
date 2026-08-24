@@ -11,7 +11,7 @@ function monthShift(ym, delta) {
 
 export default function Billing() {
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
-  const [approvedOnly, setApprovedOnly] = useState(false);
+  const [approvedOnly, setApprovedOnly] = useState(true);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -28,12 +28,16 @@ export default function Billing() {
 
   function downloadCSV() {
     if (!data) return;
-    const rows = [["業者", "物件", "回数", "単価", "金額"]];
+    const rows = [["業者", "物件", "日付", "単価", "金額"]];
     data.vendors.forEach((v) => {
-      v.items.forEach((it) => rows.push([v.vendor_name, it.property_name, it.count, it.price ?? "未設定", it.amount ?? ""]));
-      rows.push([v.vendor_name + " 小計", "", v.count, "", v.subtotal]);
+      v.items.forEach((it) => {
+        (it.dates || []).forEach((d) => {
+          rows.push([v.vendor_name, it.property_name, d, it.price ?? "未設定", it.price ?? ""]);
+        });
+      });
+      rows.push([v.vendor_name + " 小計", "", v.count + "件", "", v.subtotal]);
     });
-    rows.push(["総合計", "", data.grandCount, "", data.grandTotal]);
+    rows.push(["総合計", "", data.grandCount + "件", "", data.grandTotal]);
     const csv = "\uFEFF" + rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\r\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
@@ -83,7 +87,10 @@ export default function Billing() {
                 <tbody>
                   {v.items.map((it, i) => (
                     <tr key={i}>
-                      <td style={s.td}>{it.property_name}</td>
+                      <td style={s.td}>
+                        {it.property_name}
+                        <div style={s.dates}>{(it.dates || []).map((d) => d.slice(5).replace("-", "/")).join("・")}</div>
+                      </td>
                       <td style={s.tdR}>{it.count}</td>
                       <td style={s.tdR}>{it.price != null ? yen(it.price) : <span style={s.unset}>未設定</span>}</td>
                       <td style={s.tdR}>{it.amount != null ? yen(it.amount) : "—"}</td>
@@ -121,5 +128,6 @@ const s = {
   td: { fontSize: 13, padding: "7px 8px", borderBottom: "1px solid #F4F6F8" },
   tdR: { fontSize: 13, padding: "7px 8px", borderBottom: "1px solid #F4F6F8", textAlign: "right" },
   unset: { color: "#B42318", fontSize: 12 },
+  dates: { fontSize: 11, color: "#8A94A6", marginTop: 2 },
   muted: { color: "#8A94A6", padding: "20px 0" },
 };
