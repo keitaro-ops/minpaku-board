@@ -266,10 +266,10 @@ export default function Dashboard() {
   async function saveCleaning(sel) {
     if (sel.id) {
       await fetch("/api/cleanings", { method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: sel.id, kind: sel.kind, memo: sel.memo, vendor_id: sel.vendor_id || null }) });
+        body: JSON.stringify({ id: sel.id, kind: sel.kind, memo: sel.memo, vendor_id: sel.vendor_id || null, status: sel.status }) });
     } else {
       await fetch("/api/cleanings", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ property_name: sel.property_name, date: sel.date, kind: sel.kind, memo: sel.memo, vendor_id: sel.vendor_id || null }) });
+        body: JSON.stringify({ property_name: sel.property_name, date: sel.date, kind: sel.kind, memo: sel.memo, vendor_id: sel.vendor_id || null, status: sel.status }) });
     }
     setCleanSel(null);
     loadCleanings();
@@ -557,7 +557,7 @@ export default function Dashboard() {
           ) : view === "timeline" ? (
             <Timeline days={days} props={props} rows={filtered} today={today} onSel={tapEnabled ? setSel : null}
               tagsOf={tagsOf} dragName={dragName} onDrop={onDrop} canDrag={isAdmin && !groupByTag} showCleanLabel={showCleanLabel} dayW={dayW} nameW={nameW} scrollRef={scrollRef}
-              cleanings={cleaningVisible ? cleanings : []} canClean={canCleanEdit} fyByProp={fyByProp} fyLabel={`${fyRange.y}年度`} showMemo={showMemo} showStats={showStats && !isCleaning} propNotes={propNotes} showDate={isMobile}
+              cleanings={cleaningVisible ? cleanings : []} canClean={canCleanEdit} fyByProp={fyByProp} fyLabel={`${fyRange.y}年度`} showMemo={showMemo} showStats={showStats && !isCleaning} propNotes={propNotes} showDate={isMobile} isLead={isLead}
               onAddCleaning={canCleanEdit ? ((pn, date) => setCleanSel({ property_name: pn, date, kind: "inhouse", memo: "" })) : null}
               onEditCleaning={canCleanEdit ? ((c) => setCleanSel({ ...c })) : null}
               onNameClick={(p) => setPropModal({ name: p.name, area: p.area })} />
@@ -568,7 +568,7 @@ export default function Dashboard() {
       </div>
 
       {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onReady={toggleReady} onMemo={saveMemo} onSplit={doSplit} onUnsplit={unSplit} canEdit={canEdit} isAdmin={isAdmin} isViewer={isCleaning} />}
-      {cleanSel && <CleaningModal sel={cleanSel} onChange={setCleanSel} onSave={saveCleaning} onDelete={deleteCleaning} onClose={() => setCleanSel(null)} vendors={vendors} onAddVendor={addVendor} canAddVendor={canEdit} />}
+      {cleanSel && <CleaningModal sel={cleanSel} onChange={setCleanSel} onSave={saveCleaning} onDelete={deleteCleaning} onClose={() => setCleanSel(null)} vendors={vendors} onAddVendor={addVendor} canAddVendor={canEdit} canManage={canEdit} isLead={isLead} />}
       {vendorModal && <VendorModal vendors={vendors} onAdd={addVendor} onUpdate={updateVendor} onReorder={reorderVendors} onClose={() => setVendorModal(false)} />}
       {propModal && <PropertyModal p={propModal} tags={tags} propTags={propTags} onToggle={toggleTagForProp} onRename={doRename} onOpenTagModal={() => { setPropModal(null); setTagModal(true); }} onClose={() => setPropModal(null)} isAdmin={isAdmin} canEditNote={canEdit} note={(propNotes[propModal.name] || {}).note || ""} address={(propNotes[propModal.name] || {}).address || ""} onSaveNote={saveNote} vendors={vendors} rates={rates} onSaveRate={saveRate} showRates={canEdit} />}
       {tagModal && isAdmin && <TagModal tags={tags} propTags={propTags} props={baseProps} onClose={() => setTagModal(false)}
@@ -577,7 +577,8 @@ export default function Dashboard() {
   );
 }
 
-function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, canDrag, showCleanLabel, dayW, nameW, scrollRef, cleanings, canClean, onAddCleaning, onEditCleaning, onNameClick, fyByProp, fyLabel, showMemo, showStats, propNotes, showDate }) {
+function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, canDrag, showCleanLabel, dayW, nameW, scrollRef, cleanings, canClean, onAddCleaning, onEditCleaning, onNameClick, fyByProp, fyLabel, showMemo, showStats, propNotes, showDate, isLead }) {
+  const todayStr = isoDate(today);
   const gridW = days.length * dayW;
   const todayIdx = dayDiff(today, days[0]);
   const cleanByProp = {};
@@ -658,7 +659,11 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
                     {days.map((d, i) => {
                       const wknd = d.getDay() === 0 || d.getDay() === 6;
                       return <div key={i} className={"cell" + (wknd ? " wknd" : "") + (onAddCleaning ? " addable" : "")} style={{ width: dayW }}
-                        onClick={onAddCleaning ? (() => onAddCleaning(p.name, isoDate(d))) : undefined}
+                        onClick={onAddCleaning ? (() => {
+                          const ds = isoDate(d);
+                          if (isLead && ds < todayStr) { alert("過去の日付には登録できません。管理者・運用者に依頼してください。"); return; }
+                          onAddCleaning(p.name, ds);
+                        }) : undefined}
                         title={onAddCleaning ? `${fmtMD(d)} に清掃を追加` : undefined} />;
                     })}
                     {rs.map((r) => {
@@ -691,11 +696,12 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
                       const label = c.vendor_name || (CLEANK[c.kind] || CLEANK.inhouse).label;
                       const color = c.vendor_name ? "#0F766E" : (CLEANK[c.kind] || CLEANK.inhouse).color;
                       const sub = [label, c.memo].filter(Boolean).join(" / ");
+                      const pending = c.status === "pending";
                       return (
-                        <button key={"c" + c.id} className="cleanmark"
+                        <button key={"c" + c.id} className={"cleanmark" + (pending ? " pending" : "")}
                           style={{ left: off * dayW + 2, width: dayW - 4, background: color, cursor: onEditCleaning ? "pointer" : "default" }}
                           onClick={(e) => { e.stopPropagation(); onEditCleaning && onEditCleaning(c); }}
-                          title={`清掃 ${sub}（${fmtMD(cd)}）`}>
+                          title={`清掃 ${sub}（${fmtMD(cd)}）${pending ? " ※申請中" : ""}`}>
                           <span className="cleanmark-lbl">🧹{showCleanLabel ? sub : ""}</span>
                         </button>
                       );
@@ -962,10 +968,12 @@ function PropertyModal({ p, tags, propTags, onToggle, onRename, onOpenTagModal, 
   );
 }
 
-function CleaningModal({ sel, onChange, onSave, onDelete, onClose, vendors, onAddVendor, canAddVendor }) {
+function CleaningModal({ sel, onChange, onSave, onDelete, onClose, vendors, onAddVendor, canAddVendor, canManage, isLead }) {
   const [adding, setAdding] = useState(false);
   const [newV, setNewV] = useState("");
   const active = (vendors || []).filter((v) => !v.archived);
+  const approved = sel.status === "approved";
+  const locked = isLead && approved && sel.id;   // 責任者は承認済みを編集不可
   async function add() {
     if (!newV.trim()) return;
     const v = await onAddVendor(newV.trim());
@@ -977,18 +985,21 @@ function CleaningModal({ sel, onChange, onSave, onDelete, onClose, vendors, onAd
       <div className="modal" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
         <div className="m-top" style={{ borderColor: "#0F766E" }}>
           <span className="tag" style={{ background: "#0F766E" }}>清掃</span>
+          {sel.id && <span className={"cstat " + (approved ? "ok" : "pend")}>{approved ? "承認済み" : "申請中"}</span>}
           <button className="x" onClick={onClose}>✕</button>
         </div>
         <h2 style={{ fontSize: 18 }}>{sel.property_name}</h2>
         <div className="m-prop">{sel.date}{sel.id ? "" : "（新規）"}</div>
 
+        {locked && <div className="m-info done" style={{ marginBottom: 6 }}><span>承認済みのため、責任者は変更できません。修正が必要な場合は管理者・運用者へ。</span></div>}
+
         <div className="m-clean-t">清掃業者</div>
-        <select className="m-memo" value={sel.vendor_id || ""} onChange={(e) => onChange({ ...sel, vendor_id: e.target.value ? Number(e.target.value) : null })}>
+        <select className="m-memo" disabled={locked} value={sel.vendor_id || ""} onChange={(e) => onChange({ ...sel, vendor_id: e.target.value ? Number(e.target.value) : null })}>
           <option value="">（未選択）</option>
           {active.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
         </select>
-        {canAddVendor && !adding && <button className="ghost" style={{ width: "auto", marginTop: 8 }} onClick={() => setAdding(true)}>＋ 新しい業者を追加</button>}
-        {canAddVendor && adding && (
+        {canAddVendor && !adding && !locked && <button className="ghost" style={{ width: "auto", marginTop: 8 }} onClick={() => setAdding(true)}>＋ 新しい業者を追加</button>}
+        {canAddVendor && adding && !locked && (
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <input className="m-memo" placeholder="業者名（例: A社 / 自社）" value={newV} onChange={(e) => setNewV(e.target.value)} />
             <button className="tg-addbtn" onClick={add}>追加</button>
@@ -996,12 +1007,22 @@ function CleaningModal({ sel, onChange, onSave, onDelete, onClose, vendors, onAd
         )}
 
         <div className="m-clean-t" style={{ marginTop: 14 }}>特記メモ（任意）</div>
-        <input className="m-memo" placeholder="例: 深夜対応 / 忘れ物あり" value={sel.memo} onChange={(e) => onChange({ ...sel, memo: e.target.value })} />
+        <input className="m-memo" disabled={locked} placeholder="例: 深夜対応 / 忘れ物あり" value={sel.memo} onChange={(e) => onChange({ ...sel, memo: e.target.value })} />
 
-        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-          <button className="tg-addbtn" style={{ flex: 1 }} onClick={() => onSave(sel)}>保存</button>
-          {sel.id && <button className="m-toggle" style={{ marginTop: 0 }} onClick={() => onDelete(sel.id)}>削除</button>}
-        </div>
+        {!locked && (
+          <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+            <button className="tg-addbtn" style={{ flex: 1 }} onClick={() => onSave(sel)}>保存</button>
+            {sel.id && <button className="m-toggle" style={{ marginTop: 0 }} onClick={() => onDelete(sel.id)}>削除</button>}
+          </div>
+        )}
+
+        {canManage && sel.id && (
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            {!approved
+              ? <button className="tg-addbtn" style={{ flex: 1, background: "#0F766E" }} onClick={() => onSave({ ...sel, status: "approved" })}>承認する</button>
+              : <button className="m-toggle" style={{ marginTop: 0, flex: 1 }} onClick={() => onSave({ ...sel, status: "pending" })}>承認を差し戻す</button>}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1119,6 +1140,10 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .nm-pin { flex:0 0 auto; font-size:10px; }
 .ord-btn { font-size:9px; line-height:1; padding:2px 5px; border:1px solid #D8DDE5; background:#fff; cursor:pointer; border-radius:4px; }
 .ord-btn:disabled { opacity:.3; cursor:default; }
+.cleanmark.pending { opacity:.55; border:1.5px dashed #fff; }
+.cstat { font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px; margin-left:8px; }
+.cstat.ok { background:#DCFCE7; color:#0F766E; }
+.cstat.pend { background:#FEF3C7; color:#92400E; }
 .nm-wrap { flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:2px; overflow:hidden; }
 .tagchip { flex:0 0 auto; max-width:100%; font-size:9px; line-height:1.3; font-weight:600; color:#fff; padding:0 5px; border-radius:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .grip { color:#C3CAD5; cursor:grab; font-size:11px; letter-spacing:-2px; user-select:none; }
