@@ -66,6 +66,9 @@ export default function Billing() {
       {loading && <div style={s.muted}>読み込み中…</div>}
       {!loading && data && (
         <>
+          {data.pendingCount > 0 && (
+            <div style={s.warn}>⚠️ この月に<b>未承認の清掃が {data.pendingCount} 件</b>あります。承認するとこの集計に反映されます（ボードの「未承認 清掃」から承認できます）。</div>
+          )}
           <div style={s.total}>
             <span>総合計</span>
             <span style={s.totalV}>{yen(data.grandTotal)}</span>
@@ -129,5 +132,6 @@ const s = {
   tdR: { fontSize: 13, padding: "7px 8px", borderBottom: "1px solid #F4F6F8", textAlign: "right" },
   unset: { color: "#B42318", fontSize: 12 },
   dates: { fontSize: 11, color: "#8A94A6", marginTop: 2 },
+  warn: { background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A", borderRadius: 10, padding: "12px 14px", fontSize: 13, marginBottom: 14 },
   muted: { color: "#8A94A6", padding: "20px 0" },
 };

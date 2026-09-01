@@ -58,6 +58,7 @@ export default function Dashboard() {
   const [showBlocks, setShowBlocks] = useState(true);
   const [needInfoOnly, setNeedInfoOnly] = useState(false);
   const [alertOnly, setAlertOnly] = useState(false);
+  const [pendingOnly, setPendingOnly] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [showCleanLabel, setShowCleanLabel] = useState(true);
@@ -457,6 +458,7 @@ export default function Dashboard() {
           <Chip color={PLATFORMS.booking.bar} label="Booking" value={stats.bk} />
           <Chip color="#FFD400" label="事前情報 未提出" value={stats.need} />
           <Chip color="#0F766E" label="今月 清掃予定" value={stats.cleanCnt} />
+          {canEdit && <Chip color="#92400E" label="未承認 清掃" value={cleanings.filter((c) => c.status === "pending").length} onClick={() => setPendingOnly((v) => !v)} active={pendingOnly} />}
         </div>
       </header>
 
@@ -558,7 +560,7 @@ export default function Dashboard() {
           ) : view === "timeline" ? (
             <Timeline days={days} props={props} rows={filtered} today={today} onSel={tapEnabled ? setSel : null}
               tagsOf={tagsOf} dragName={dragName} onDrop={onDrop} canDrag={isAdmin && !groupByTag} showCleanLabel={showCleanLabel} dayW={dayW} nameW={nameW} scrollRef={scrollRef}
-              cleanings={cleaningVisible ? cleanings : []} canClean={canCleanEdit} fyByProp={fyByProp} fyLabel={`${fyRange.y}年度`} showMemo={showMemo} showStats={showStats && !isCleaning} propNotes={propNotes} showDate={isMobile} isLead={isLead}
+              cleanings={cleaningVisible ? (pendingOnly ? cleanings.filter((c) => c.status === "pending") : cleanings) : []} canClean={canCleanEdit} fyByProp={fyByProp} fyLabel={`${fyRange.y}年度`} showMemo={showMemo} showStats={showStats && !isCleaning} propNotes={propNotes} showDate={isMobile} isLead={isLead}
               onAddCleaning={canCleanEdit ? ((pn, date) => setCleanSel({ property_name: pn, date, kind: "inhouse", memo: "" })) : null}
               onEditCleaning={canCleanEdit ? ((c) => setCleanSel({ ...c })) : null}
               onNameClick={(p) => setPropModal({ name: p.name, area: p.area })} />

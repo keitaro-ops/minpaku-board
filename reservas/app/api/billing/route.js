@@ -48,5 +48,6 @@ export async function GET(req) {
     })).sort((a, b) => a.property_name.localeCompare(b.property_name)),
   })).sort((a, b) => (a.vendor_name || "").localeCompare(b.vendor_name || ""));
 
-  return NextResponse.json({ month, approvedOnly, vendors, grandTotal, grandCount, hasUnset });
+  const [{ pending }] = await sql`select count(*)::int as pending from cleanings where date >= ${start} and date < ${end} and status = 'pending'`;
+  return NextResponse.json({ month, approvedOnly, vendors, grandTotal, grandCount, hasUnset, pendingCount: pending });
 }
