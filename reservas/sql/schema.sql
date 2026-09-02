@@ -137,3 +137,13 @@ alter table vendors add column if not exists sort_order integer not null default
 
 -- 物件の住所（建物メモとは別欄）
 alter table property_notes add column if not exists address text not null default '';
+
+-- 同期ログ（削除/追加件数を記録。異常検知用）
+create table if not exists sync_log (
+  id          bigserial primary key,
+  ran_at      timestamptz not null default now(),
+  deleted     integer not null default 0,
+  inserted    integer not null default 0,
+  feeds_ok    integer not null default 0,
+  feeds_error integer not null default 0
+);
