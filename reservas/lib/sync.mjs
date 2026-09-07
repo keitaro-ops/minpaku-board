@@ -41,9 +41,16 @@ export async function runSync() {
 
   // チェックインが明日以降（> 今日）の分だけ iCal で入れ替える。
   // チェックイン <= 今日（当日イン含む＝滞在開始済み/当日）は確定保持し、上書きしない。
-  const upcoming = merged.filter((r) => r.checkIn.toISOString().slice(0, 10) > today);
+  const upToStr = (r) => r.checkIn.toISOString().slice(0, 10);
+  const upcoming = merged.filter((r) => upToStr(r) > today);
 
-  let deleted = 0;
+  // 直前予約対策：チェックインが「今日以前」でも、DBにまだ無い予約は追加する。
+  // （当日・前日に確定してiCalに出た予約は、保持側に回って挿入されず取りこぼしていた）
+  // 直近31日分を対象に、既存(物件+IN+OUT)に無いものだけINSERT（既存は消さない＝分割等を保持）。
+  const floor = new Date(jstNow.getTime() - 31 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const recentCurrent = merged.filter((r) => { const d = upToStr(r); return d <= today && d >= floor; });
+
+  let deleted = 0, addedLate = 0;
   await sql.begin(async (tx) => {
     if (okProps.length) {
       // 取得成功した物件の「明日以降」分だけ削除 → 入れ替え。
@@ -65,12 +72,30 @@ export async function runSync() {
       }));
       await tx`insert into reservations ${tx(payload)}`;
     }
+    // 直前予約の取りこぼしを補完（既存に無いものだけ追加）
+    if (recentCurrent.length && okProps.length) {
+      const existing = await tx`
+        select property_name, to_char(check_in,'YYYY-MM-DD') as ci, to_char(check_out,'YYYY-MM-DD') as co
+        from reservations
+        where check_in <= ${today}::date and check_in >= ${floor}::date and property_name in ${tx(okProps)}`;
+      const seen = new Set(existing.map((x) => `${x.property_name}|${x.ci}|${x.co}`));
+      const toAdd = recentCurrent.filter((r) => !seen.has(`${r.propertyName}|${r.checkIn.toISOString().slice(0,10)}|${r.checkOut.toISOString().slice(0,10)}`));
+      if (toAdd.length) {
+        const payload2 = toAdd.map((r) => ({
+          property_name: r.propertyName, area: r.area || "", platform: r.platform, type: r.type,
+          check_in: r.checkIn.toISOString().slice(0, 10), check_out: r.checkOut.toISOString().slice(0, 10),
+          nights: r.nights, res_code: r.resCode || null, res_url: r.resUrl || null, summary: r.summary || null,
+        }));
+        await tx`insert into reservations ${tx(payload2)}`;
+        addedLate = toAdd.length;
+      }
+    }
   });
 
   // 同期ログ（異常な大量削除に後から気づけるよう記録）
   try {
     await sql`insert into sync_log (ran_at, deleted, inserted, feeds_ok, feeds_error)
-              values (now(), ${deleted}, ${upcoming.length}, ${feeds.length}, ${errors.length})`;
+              values (now(), ${deleted}, ${upcoming.length + addedLate}, ${feeds.length}, ${errors.length})`;
   } catch {}
 
   const [{ count }] = await sql`select count(*)::int as count from reservations`;
