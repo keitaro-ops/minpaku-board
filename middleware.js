@@ -27,8 +27,13 @@ export async function middleware(req) {
     const url = req.nextUrl.clone(); url.pathname = "/login"; return NextResponse.redirect(url);
   }
 
-  // 単価(rates)は管理者・運用者のみ（GETも含め制限）
-  if (pathname === "/api/rates" || pathname.startsWith("/api/rates/")) {
+  // 清掃費集計ページは管理者・運用者のみ
+  if ((pathname === "/billing" || pathname.startsWith("/billing/")) && role !== "admin" && role !== "staff") {
+    const url = req.nextUrl.clone(); url.pathname = "/"; return NextResponse.redirect(url);
+  }
+
+  // 単価(rates)・清掃費集計(billing)は管理者・運用者のみ（GETも含め制限）
+  if (pathname === "/api/rates" || pathname.startsWith("/api/rates/") || pathname === "/api/billing" || pathname.startsWith("/api/billing/")) {
     if (role !== "admin" && role !== "staff") return NextResponse.json({ error: "権限がありません" }, { status: 403 });
   }
 
