@@ -15,7 +15,7 @@ const key = (n, ci, co) => `${n}|${ci}|${co}`;
 export async function GET() {
   try {
     const sql = db();
-    const [resv, ov, ci, cl, sp, rd, mm, gc] = await Promise.all([
+    const [resv, ov, ci, cl, sp, rd, mm, gc, cf] = await Promise.all([
       sql`select property_name, area, platform, type,
                  to_char(check_in,'YYYY-MM-DD') as check_in,
                  to_char(check_out,'YYYY-MM-DD') as check_out,
@@ -27,9 +27,11 @@ export async function GET() {
       sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, ready from ready_status`,
       sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, memo from memo_status`,
       sql`select res_code, adults, children, guest_name from guest_counts`,
+      sql`select res_code from change_flags where acknowledged = false`,
     ]);
 
     const gcM = new Map(gc.map((x) => [x.res_code, x]));
+    const cfSet = new Set(cf.map((x) => x.res_code));
 
     const ovM = new Map(ov.map((x) => [key(x.property_name, x.check_in, x.check_out), x.type]));
     const ciM = new Map(ci.map((x) => [key(x.property_name, x.check_in, x.check_out), x.submitted]));
@@ -69,6 +71,7 @@ export async function GET() {
           adults: g ? g.adults : null,
           children: g ? g.children : null,
           guest_name: g ? g.guest_name : "",
+          changed: !isSeg && r.res_code ? cfSet.has(r.res_code) : false,
           cleaning_status: cln ? cln.status : "unrequested",
           cleaning_memo: cln ? cln.memo : "",
           split_ci: isSeg ? r.check_in : null,

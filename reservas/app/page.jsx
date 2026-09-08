@@ -31,6 +31,7 @@ const mapRows = (rows) => rows.map((x, i) => ({
   adults: x.adults ?? null,
   children: x.children ?? null,
   guest_name: x.guest_name || "",
+  changed: !!x.changed,
   cleaning_status: x.cleaning_status || "unrequested",
   cleaning_memo: x.cleaning_memo || "",
   ci: parseDate(x.check_in), co: parseDate(x.check_out),
@@ -62,6 +63,7 @@ export default function Dashboard() {
   const [needInfoOnly, setNeedInfoOnly] = useState(false);
   const [alertOnly, setAlertOnly] = useState(false);
   const [pendingOnly, setPendingOnly] = useState(false);
+  const [changedOnly, setChangedOnly] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [showCleanLabel, setShowCleanLabel] = useState(true);
@@ -209,6 +211,13 @@ export default function Dashboard() {
     setData((d) => d.map((x) => (x.id === r.id ? { ...x, memo } : x)));
     await fetch("/api/memo", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, memo }) });
+    load();
+  }
+  async function ackChange(r) {
+    if (!canEdit || !r.res_code) return;
+    setData((d) => d.map((x) => (x.res_code === r.res_code ? { ...x, changed: false } : x)));
+    setSel(null);
+    await fetch("/api/ackchange", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ res_code: r.res_code }) });
     load();
   }
   async function toggleReady(r) {
@@ -363,10 +372,11 @@ export default function Dashboard() {
       if (viewerHidden.has(r.property_name)) return false;
       if (needInfoOnly && (r.type !== "booking" || r.info_submitted)) return false;
       if (alertOnly && !isAlert(r)) return false;
+      if (changedOnly && !r.changed) return false;
       if (s && !`${r.property_name} ${r.area || ""}`.toLowerCase().includes(s)) return false;
       return true;
     });
-  }, [data, plat, showBlocks, needInfoOnly, alertOnly, q, today, alertLimit, viewerHidden]);
+  }, [data, plat, showBlocks, needInfoOnly, alertOnly, changedOnly, q, today, alertLimit, viewerHidden]);
 
   const stats = useMemo(() => {
     const mStart = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -462,6 +472,7 @@ export default function Dashboard() {
           <Chip color="#FFD400" label="事前情報 未提出" value={stats.need} />
           <Chip color="#0F766E" label="今月 清掃予定" value={stats.cleanCnt} />
           {canEdit && <Chip color="#92400E" label="未承認 清掃" value={cleanings.filter((c) => c.status === "pending").length} onClick={() => setPendingOnly((v) => !v)} active={pendingOnly} />}
+          {canEdit && (data || []).some((r) => r.changed) && <Chip color="#B45309" label="変更あり 要確認" value={new Set((data || []).filter((r) => r.changed).map((r) => r.res_code)).size} onClick={() => setChangedOnly((v) => !v)} active={changedOnly} />}
         </div>
       </header>
 
@@ -573,7 +584,7 @@ export default function Dashboard() {
         </main>
       </div>
 
-      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onReady={toggleReady} onMemo={saveMemo} onSplit={doSplit} onUnsplit={unSplit} canEdit={canEdit} isAdmin={isAdmin} isViewer={isCleaning} />}
+      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onReady={toggleReady} onMemo={saveMemo} onSplit={doSplit} onUnsplit={unSplit} onAckChange={ackChange} canEdit={canEdit} isAdmin={isAdmin} isViewer={isCleaning} />}
       {cleanSel && <CleaningModal sel={cleanSel} onChange={setCleanSel} onSave={saveCleaning} onDelete={deleteCleaning} onClose={() => setCleanSel(null)} vendors={vendors} onAddVendor={addVendor} canAddVendor={canEdit} canManage={canEdit} isLead={isLead} />}
       {vendorModal && <VendorModal vendors={vendors} onAdd={addVendor} onUpdate={updateVendor} onReorder={reorderVendors} onClose={() => setVendorModal(false)} />}
       {propModal && <PropertyModal p={propModal} tags={tags} propTags={propTags} onToggle={toggleTagForProp} onRename={doRename} onOpenTagModal={() => { setPropModal(null); setTagModal(true); }} onClose={() => setPropModal(null)} isAdmin={isAdmin} canEditNote={canEdit} note={(propNotes[propModal.name] || {}).note || ""} address={(propNotes[propModal.name] || {}).address || ""} onSaveNote={saveNote} vendors={vendors} rates={rates} onSaveRate={saveRate} showRates={canEdit} />}
@@ -688,6 +699,7 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
                           {!block && !r.ready && <span className="dotm" style={{ background: "#06B6D4" }} title="清掃後チェック 未確認" />}
                           {!block && r.memo && !showMemo && <span className="memo-ico" title={r.memo}>📝</span>}
                           {!block && (r.adults || r.children) ? <span className="memo-ico" title={`大人${r.adults || 0}・子ども${r.children || 0}`}>👥{(r.adults || 0) + (r.children || 0)}</span> : null}
+                          {!block && r.changed ? <span className="memo-ico" title="予約に変更あり・要確認">⚠️</span> : null}
                           <span className="bar-lbl" style={{ color: block ? "#5A6472" : "#fff" }}>
                             {block ? "ブロック" : (showMemo && r.memo
                               ? <><span className="nights2">{showDate ? fmtMD(r.ci) + " " : ""}{r.nights}泊</span><span className="clean-memo">📝{r.memo}</span></>
@@ -754,7 +766,7 @@ function ListView({ rows, sort, onSort, onSel }) {
   );
 }
 
-function Detail({ r, onClose, onToggle, onCheckin, onReady, onMemo, onSplit, onUnsplit, canEdit, isAdmin, isViewer }) {
+function Detail({ r, onClose, onToggle, onCheckin, onReady, onMemo, onSplit, onUnsplit, onAckChange, canEdit, isAdmin, isViewer }) {
   const pf = PLATFORMS[r.platform] || PLATFORMS.airbnb;
   const block = r.type === "block";
   const [splitDate, setSplitDate] = useState("");
@@ -768,6 +780,13 @@ function Detail({ r, onClose, onToggle, onCheckin, onReady, onMemo, onSplit, onU
         </div>
         <h2>{r.property_name}</h2>
         <div className="m-prop">{r.area}</div>
+
+        {r.changed && (
+          <div className="m-info todo" style={{ background: "#FEF3C7", borderColor: "#FDE68A" }}>
+            <span>⚠️ この予約に<b>変更</b>がありました（日程・人数など）。内容をAirbnbで確認してください。</span>
+            {canEdit && <button onClick={() => onAckChange(r)}>確認済み</button>}
+          </div>
+        )}
         <dl className="m-grid">
           <div><dt>チェックイン</dt><dd className="mono">{fmtMD(r.ci)} ({WD[r.ci.getDay()]})</dd></div>
           <div><dt>チェックアウト</dt><dd className="mono">{fmtMD(r.co)} ({WD[r.co.getDay()]})</dd></div>

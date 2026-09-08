@@ -37,6 +37,18 @@ export async function POST(req) {
       values (${b.res_code}, ${adults}, ${children}, ${(b.guest_name || "").slice(0, 120)}, now())
       on conflict (res_code) do update set adults=excluded.adults, children=excluded.children, guest_name=excluded.guest_name, updated_at=now()`;
     result.saved = "guests";
+  } else if (b.kind === "airbnb_change" && b.res_code) {
+    // 予約変更あり → 要確認フラグを立てる（確認コードで紐付け）
+    await sql`
+      insert into change_flags (res_code, guest_name, flagged_at, acknowledged)
+      values (${b.res_code}, ${(b.guest_name || "").slice(0, 120)}, now(), false)
+      on conflict (res_code) do update set guest_name = excluded.guest_name, flagged_at = now(), acknowledged = false`;
+    result.saved = "change_flag";
+  } else if (b.kind === "airbnb_cancel" && b.res_code) {
+    // キャンセルは iCal 同期で予約が消える。人数・変更フラグの残骸を掃除。
+    try { await sql`delete from guest_counts where res_code = ${b.res_code}`; } catch {}
+    try { await sql`delete from change_flags where res_code = ${b.res_code}`; } catch {}
+    result.saved = "airbnb_cancel_cleaned";
   } else if (b.kind === "booking_cancel" && b.res_number) {
     // Booking キャンセル: 予約番号に一致する予約をブロック化（集計/表示から除外）
     // res_url に予約番号が含まれることは少ないため、チェックイン日＋物件名でも補助照合。

@@ -164,3 +164,11 @@ create table if not exists inbound_log (
   info       text default '',
   created_at timestamptz not null default now()
 );
+
+-- Airbnb予約の「変更あり・要確認」フラグ（確認コードで紐付け）
+create table if not exists change_flags (
+  res_code    text primary key,
+  guest_name  text default '',
+  flagged_at  timestamptz not null default now(),
+  acknowledged boolean not null default false
+);
