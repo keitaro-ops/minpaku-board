@@ -147,3 +147,20 @@ create table if not exists sync_log (
   feeds_ok    integer not null default 0,
   feeds_error integer not null default 0
 );
+
+-- Airbnb予約の人数（メール解析。確認コード HMxxxx で予約と紐付け）
+create table if not exists guest_counts (
+  res_code   text primary key,          -- Airbnb確認コード（HMxxxx）
+  adults     integer not null default 0,
+  children   integer not null default 0,
+  guest_name text default '',
+  updated_at timestamptz not null default now()
+);
+
+-- メール処理の重複防止（処理済みメールIDを記録）
+create table if not exists inbound_log (
+  message_id text primary key,
+  kind       text default '',           -- airbnb_booking / booking_new / booking_cancel
+  info       text default '',
+  created_at timestamptz not null default now()
+);

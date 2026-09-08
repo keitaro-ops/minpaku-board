@@ -6,7 +6,7 @@ async function tokenFor(role) {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-const OPEN = ["/login", "/api/login", "/api/cron"];
+const OPEN = ["/login", "/api/login", "/api/cron", "/api/inbound"];
 // 非GETで admin のみ許可するパス
 const ADMIN_ONLY = ["/api/settings", "/api/feeds", "/api/rename", "/api/webhooks"];
 

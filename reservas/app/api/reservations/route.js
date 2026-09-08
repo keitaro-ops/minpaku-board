@@ -15,7 +15,7 @@ const key = (n, ci, co) => `${n}|${ci}|${co}`;
 export async function GET() {
   try {
     const sql = db();
-    const [resv, ov, ci, cl, sp, rd, mm] = await Promise.all([
+    const [resv, ov, ci, cl, sp, rd, mm, gc] = await Promise.all([
       sql`select property_name, area, platform, type,
                  to_char(check_in,'YYYY-MM-DD') as check_in,
                  to_char(check_out,'YYYY-MM-DD') as check_out,
@@ -26,7 +26,10 @@ export async function GET() {
       sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, boundaries from splits`,
       sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, ready from ready_status`,
       sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, memo from memo_status`,
+      sql`select res_code, adults, children, guest_name from guest_counts`,
     ]);
+
+    const gcM = new Map(gc.map((x) => [x.res_code, x]));
 
     const ovM = new Map(ov.map((x) => [key(x.property_name, x.check_in, x.check_out), x.type]));
     const ciM = new Map(ci.map((x) => [key(x.property_name, x.check_in, x.check_out), x.submitted]));
@@ -54,6 +57,7 @@ export async function GET() {
       for (const [sci, sco, isSeg] of segments) {
         const k = key(r.property_name, sci, sco);
         const cln = clM.get(k);
+        const g = !isSeg && r.res_code ? gcM.get(r.res_code) : null;
         out.push({
           property_name: r.property_name, area: r.area, platform: r.platform,
           type: isSeg ? "booking" : type,
@@ -62,6 +66,9 @@ export async function GET() {
           info_submitted: ciM.get(k) ?? false,
           ready: rdM.get(k) ?? false,
           memo: mmM.get(k) ?? "",
+          adults: g ? g.adults : null,
+          children: g ? g.children : null,
+          guest_name: g ? g.guest_name : "",
           cleaning_status: cln ? cln.status : "unrequested",
           cleaning_memo: cln ? cln.memo : "",
           split_ci: isSeg ? r.check_in : null,

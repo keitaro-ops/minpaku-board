@@ -28,6 +28,9 @@ const mapRows = (rows) => rows.map((x, i) => ({
   info_submitted: !!x.info_submitted,
   ready: !!x.ready,
   memo: x.memo || "",
+  adults: x.adults ?? null,
+  children: x.children ?? null,
+  guest_name: x.guest_name || "",
   cleaning_status: x.cleaning_status || "unrequested",
   cleaning_memo: x.cleaning_memo || "",
   ci: parseDate(x.check_in), co: parseDate(x.check_out),
@@ -684,6 +687,7 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
                           {!block && !r.info_submitted && <span className="dotm" style={{ background: "#FFD400" }} title="事前情報 未提出" />}
                           {!block && !r.ready && <span className="dotm" style={{ background: "#06B6D4" }} title="清掃後チェック 未確認" />}
                           {!block && r.memo && !showMemo && <span className="memo-ico" title={r.memo}>📝</span>}
+                          {!block && (r.adults || r.children) ? <span className="memo-ico" title={`大人${r.adults || 0}・子ども${r.children || 0}`}>👥{(r.adults || 0) + (r.children || 0)}</span> : null}
                           <span className="bar-lbl" style={{ color: block ? "#5A6472" : "#fff" }}>
                             {block ? "ブロック" : (showMemo && r.memo
                               ? <><span className="nights2">{showDate ? fmtMD(r.ci) + " " : ""}{r.nights}泊</span><span className="clean-memo">📝{r.memo}</span></>
@@ -769,6 +773,8 @@ function Detail({ r, onClose, onToggle, onCheckin, onReady, onMemo, onSplit, onU
           <div><dt>チェックアウト</dt><dd className="mono">{fmtMD(r.co)} ({WD[r.co.getDay()]})</dd></div>
           <div><dt>泊数</dt><dd className="mono">{r.nights}泊</dd></div>
           {!isViewer && <div><dt>予約コード</dt><dd className="mono">{r.res_code || "—"}</dd></div>}
+          {(r.adults || r.children) ? <div><dt>人数</dt><dd className="mono">大人{r.adults || 0}{r.children ? `・子ども${r.children}` : ""}</dd></div> : null}
+          {r.guest_name && !isViewer ? <div><dt>ゲスト</dt><dd>{r.guest_name}</dd></div> : null}
         </dl>
 
         {isViewer ? (
