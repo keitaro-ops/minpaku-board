@@ -15,7 +15,7 @@ const key = (n, ci, co) => `${n}|${ci}|${co}`;
 export async function GET() {
   try {
     const sql = db();
-    const [resv, ov, ci, cl, sp, rd, mm, gc, cf] = await Promise.all([
+    const [resv, ov, ci, cl, sp, rd, mm, gc, cf, gman] = await Promise.all([
       sql`select property_name, area, platform, type,
                  to_char(check_in,'YYYY-MM-DD') as check_in,
                  to_char(check_out,'YYYY-MM-DD') as check_out,
@@ -28,10 +28,12 @@ export async function GET() {
       sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, memo from memo_status`,
       sql`select res_code, adults, children, guest_name from guest_counts`,
       sql`select res_code from change_flags where acknowledged = false`,
+      sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, adults, children from guest_manual`,
     ]);
 
     const gcM = new Map(gc.map((x) => [x.res_code, x]));
     const cfSet = new Set(cf.map((x) => x.res_code));
+    const gmM = new Map(gman.map((x) => [key(x.property_name, x.check_in, x.check_out), x]));
 
     const ovM = new Map(ov.map((x) => [key(x.property_name, x.check_in, x.check_out), x.type]));
     const ciM = new Map(ci.map((x) => [key(x.property_name, x.check_in, x.check_out), x.submitted]));
@@ -60,6 +62,9 @@ export async function GET() {
         const k = key(r.property_name, sci, sco);
         const cln = clM.get(k);
         const g = !isSeg && r.res_code ? gcM.get(r.res_code) : null;
+        const gmv = gmM.get(k); // 手動人数（物件+IN+OUT）: あれば優先
+        const adults = gmv ? gmv.adults : (g ? g.adults : null);
+        const children = gmv ? gmv.children : (g ? g.children : null);
         out.push({
           property_name: r.property_name, area: r.area, platform: r.platform,
           type: isSeg ? "booking" : type,
@@ -68,8 +73,8 @@ export async function GET() {
           info_submitted: ciM.get(k) ?? false,
           ready: rdM.get(k) ?? false,
           memo: mmM.get(k) ?? "",
-          adults: g ? g.adults : null,
-          children: g ? g.children : null,
+          adults: adults,
+          children: children,
           guest_name: g ? g.guest_name : "",
           changed: !isSeg && r.res_code ? cfSet.has(r.res_code) : false,
           cleaning_status: cln ? cln.status : "unrequested",

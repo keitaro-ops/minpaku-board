@@ -172,3 +172,13 @@ create table if not exists change_flags (
   flagged_at  timestamptz not null default now(),
   acknowledged boolean not null default false
 );
+
+-- 予約単位の人数（手動編集用。物件名+IN+OUTで紐付け。メール由来のguest_countsとは別系統で全予約対応）
+create table if not exists guest_manual (
+  property_name text not null,
+  check_in  date not null,
+  check_out date not null,
+  adults    integer not null default 0,
+  children  integer not null default 0,
+  primary key (property_name, check_in, check_out)
+);

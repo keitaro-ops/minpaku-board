@@ -213,6 +213,13 @@ export default function Dashboard() {
       body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, memo }) });
     load();
   }
+  async function saveGuests(r, adults, children) {
+    if (!canEdit) return;
+    setData((d) => d.map((x) => (x.id === r.id ? { ...x, adults, children } : x)));
+    await fetch("/api/guests", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, adults, children }) });
+    load();
+  }
   async function ackChange(r) {
     if (!canEdit || !r.res_code) return;
     setData((d) => d.map((x) => (x.res_code === r.res_code ? { ...x, changed: false } : x)));
@@ -584,7 +591,7 @@ export default function Dashboard() {
         </main>
       </div>
 
-      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onReady={toggleReady} onMemo={saveMemo} onSplit={doSplit} onUnsplit={unSplit} onAckChange={ackChange} canEdit={canEdit} isAdmin={isAdmin} isViewer={isCleaning} />}
+      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onReady={toggleReady} onMemo={saveMemo} onSplit={doSplit} onUnsplit={unSplit} onAckChange={ackChange} onGuests={saveGuests} canEdit={canEdit} isAdmin={isAdmin} isViewer={isCleaning} />}
       {cleanSel && <CleaningModal sel={cleanSel} onChange={setCleanSel} onSave={saveCleaning} onDelete={deleteCleaning} onClose={() => setCleanSel(null)} vendors={vendors} onAddVendor={addVendor} canAddVendor={canEdit} canManage={canEdit} isLead={isLead} />}
       {vendorModal && <VendorModal vendors={vendors} onAdd={addVendor} onUpdate={updateVendor} onReorder={reorderVendors} onClose={() => setVendorModal(false)} />}
       {propModal && <PropertyModal p={propModal} tags={tags} propTags={propTags} onToggle={toggleTagForProp} onRename={doRename} onOpenTagModal={() => { setPropModal(null); setTagModal(true); }} onClose={() => setPropModal(null)} isAdmin={isAdmin} canEditNote={canEdit} note={(propNotes[propModal.name] || {}).note || ""} address={(propNotes[propModal.name] || {}).address || ""} onSaveNote={saveNote} vendors={vendors} rates={rates} onSaveRate={saveRate} showRates={canEdit} />}
@@ -766,11 +773,13 @@ function ListView({ rows, sort, onSort, onSel }) {
   );
 }
 
-function Detail({ r, onClose, onToggle, onCheckin, onReady, onMemo, onSplit, onUnsplit, onAckChange, canEdit, isAdmin, isViewer }) {
+function Detail({ r, onClose, onToggle, onCheckin, onReady, onMemo, onSplit, onUnsplit, onAckChange, onGuests, canEdit, isAdmin, isViewer }) {
   const pf = PLATFORMS[r.platform] || PLATFORMS.airbnb;
   const block = r.type === "block";
   const [splitDate, setSplitDate] = useState("");
   const [memo, setMemo] = useState(r.memo || "");
+  const [ad, setAd] = useState(r.adults ?? 0);
+  const [ch, setCh] = useState(r.children ?? 0);
   return (
     <div className="ov" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -824,6 +833,20 @@ function Detail({ r, onClose, onToggle, onCheckin, onReady, onMemo, onSplit, onU
                 <div style={{ fontSize: 13, color: "#344054" }}>{r.memo || "（メモなし）"}</div>
               )}
             </div>
+
+            {canEdit && (
+              <div className="m-split">
+                <div className="m-clean-t">人数（手動編集）</div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <label style={{ fontSize: 12.5, color: "#475467" }}>大人</label>
+                  <input className="m-memo" type="number" min="0" style={{ width: 70 }} value={ad} onChange={(e) => setAd(Math.max(0, parseInt(e.target.value, 10) || 0))} />
+                  <label style={{ fontSize: 12.5, color: "#475467" }}>子ども</label>
+                  <input className="m-memo" type="number" min="0" style={{ width: 70 }} value={ch} onChange={(e) => setCh(Math.max(0, parseInt(e.target.value, 10) || 0))} />
+                  <button className="tg-addbtn" onClick={() => onGuests(r, ad, ch)}>保存</button>
+                </div>
+                <p className="hint2" style={{ marginTop: 4 }}>手動の人数はメール取得値より優先されます。</p>
+              </div>
+            )}
 
             {isAdmin && (!r.split_ci ? (
               <div className="m-split">
