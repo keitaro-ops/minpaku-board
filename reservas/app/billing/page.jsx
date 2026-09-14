@@ -28,16 +28,16 @@ export default function Billing() {
 
   function downloadCSV() {
     if (!data) return;
-    const rows = [["業者", "物件", "日付", "単価", "金額"]];
+    const rows = [["業者", "物件", "請求先", "日付", "単価", "金額"]];
     data.vendors.forEach((v) => {
       v.items.forEach((it) => {
         (it.dates || []).forEach((d) => {
-          rows.push([v.vendor_name, it.property_name, d, it.price ?? "未設定", it.price ?? ""]);
+          rows.push([v.vendor_name, it.property_name, it.billing_to || "", d, it.price ?? "未設定", it.price ?? ""]);
         });
       });
-      rows.push([v.vendor_name + " 小計", "", v.count + "件", "", v.subtotal]);
+      rows.push([v.vendor_name + " 小計", "", "", v.count + "件", "", v.subtotal]);
     });
-    rows.push(["総合計", "", data.grandCount + "件", "", data.grandTotal]);
+    rows.push(["総合計", "", "", data.grandCount + "件", "", data.grandTotal]);
     const csv = "\uFEFF" + rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\r\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
@@ -92,6 +92,7 @@ export default function Billing() {
                     <tr key={i}>
                       <td style={s.td}>
                         {it.property_name}
+                        {it.billing_to ? <div style={s.dates}>請求先: {it.billing_to}</div> : null}
                         <div style={s.dates}>{(it.dates || []).map((d) => d.slice(5).replace("-", "/")).join("・")}</div>
                       </td>
                       <td style={s.tdR}>{it.count}</td>

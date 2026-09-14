@@ -49,5 +49,11 @@ export async function GET(req) {
   })).sort((a, b) => (a.vendor_name || "").localeCompare(b.vendor_name || ""));
 
   const [{ pending }] = await sql`select count(*)::int as pending from cleanings where date >= ${start} and date < ${end} and status = 'pending'`;
+  // 物件ごとの請求先（billers マスタ名）
+  const notes = await sql`select pn.property_name, b.name as biller_name
+                          from property_notes pn left join billers b on b.id = pn.biller_id`;
+  const billMap = {};
+  notes.forEach((n) => { billMap[n.property_name] = n.biller_name || ""; });
+  vendors.forEach((v) => v.items.forEach((it) => { it.billing_to = billMap[it.property_name] || ""; }));
   return NextResponse.json({ month, approvedOnly, vendors, grandTotal, grandCount, hasUnset, pendingCount: pending });
 }

@@ -182,3 +182,22 @@ create table if not exists guest_manual (
   children  integer not null default 0,
   primary key (property_name, check_in, check_out)
 );
+
+-- 清掃の請求先（物件ごと）
+alter table property_notes add column if not exists billing_to text not null default '';
+
+-- 請求先マスタ
+create table if not exists billers (
+  id bigserial primary key,
+  name text not null,
+  archived boolean not null default false,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now()
+);
+insert into billers (name, sort_order)
+  select 'タフト', 1 where not exists (select 1 from billers)
+  union all
+  select 'FA', 2 where not exists (select 1 from billers);
+
+-- 物件ごとの請求先（1物件1つ）。property_notes に biller_id を追加。
+alter table property_notes add column if not exists biller_id bigint;

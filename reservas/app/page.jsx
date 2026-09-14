@@ -72,6 +72,8 @@ export default function Dashboard() {
   const [vendors, setVendors] = useState([]);
   const [rates, setRates] = useState({});     // { "物件|vendorId": price }
   const [vendorModal, setVendorModal] = useState(false);
+  const [billers, setBillers] = useState([]);
+  const [billerModal, setBillerModal] = useState(false);
   const [propNotes, setPropNotes] = useState({});
   const [cleanSel, setCleanSel] = useState(null);
   const [isMobile, setIsMobile] = useState(false);
@@ -176,6 +178,7 @@ export default function Dashboard() {
     loadCleanings();
     loadPropNotes();
     loadVendors();
+    loadBillers();
     if (readRole() === "admin" || readRole() === "staff") loadRates();
   }, []);
   // 自動更新：10分ごと（表示中のみ）＋タブ復帰時
@@ -257,6 +260,22 @@ export default function Dashboard() {
     setVendors((vs) => { const map = new Map(vs.map((v) => [v.id, v])); return orderIds.map((id) => map.get(id)).filter(Boolean); });
     await fetch("/api/vendors", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ order: orderIds }) });
   }
+  async function loadBillers() {
+    try { const r = await fetch("/api/billers"); if (r.ok) setBillers((await r.json()).billers || []); } catch {}
+  }
+  async function addBiller(name) {
+    const r = await fetch("/api/billers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+    if (r.ok) { const v = (await r.json()).biller; await loadBillers(); return v; }
+    return null;
+  }
+  async function updateBiller(id, patch) {
+    await fetch("/api/billers", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
+    loadBillers();
+  }
+  async function reorderBillers(orderIds) {
+    setBillers((vs) => { const map = new Map(vs.map((v) => [v.id, v])); return orderIds.map((id) => map.get(id)).filter(Boolean); });
+    await fetch("/api/billers", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ order: orderIds }) });
+  }
   async function saveRate(property_name, vendor_id, price) {
     setRates((m) => ({ ...m, [`${property_name}|${vendor_id}`]: price }));
     await fetch("/api/rates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ property_name, vendor_id, price }) });
@@ -266,16 +285,16 @@ export default function Dashboard() {
       const r = await fetch("/api/propnote");
       if (r.ok) {
         const map = {};
-        (await r.json()).notes.forEach((n) => { map[n.property_name] = { note: n.note || "", address: n.address || "" }; });
+        (await r.json()).notes.forEach((n) => { map[n.property_name] = { note: n.note || "", address: n.address || "", biller_id: n.biller_id || null }; });
         setPropNotes(map);
       }
     } catch {}
   }
-  async function saveNote(name, note, address) {
+  async function saveNote(name, note, address, biller_id) {
     if (!canEdit) return;
-    setPropNotes((m) => ({ ...m, [name]: { note, address } }));
+    setPropNotes((m) => ({ ...m, [name]: { note, address, biller_id } }));
     await fetch("/api/propnote", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ property_name: name, note, address }) });
+      body: JSON.stringify({ property_name: name, note, address, biller_id }) });
   }
   async function loadCleanings() {
     try {
@@ -531,6 +550,7 @@ export default function Dashboard() {
           {canEdit && (
             <FilterGroup title="清掃業者（管理者・運用者）">
               <button className="ghost" onClick={() => setVendorModal(true)}>清掃業者マスタを編集</button>
+              <button className="ghost" onClick={() => setBillerModal(true)}>請求先マスタを編集</button>
               <a className="ghost" href="/billing">清掃費 月次集計を開く</a>
               <div className="hint2">業者の追加・名称変更・アーカイブ。単価は物件名タップで設定。</div>
             </FilterGroup>
@@ -594,7 +614,8 @@ export default function Dashboard() {
       {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onReady={toggleReady} onMemo={saveMemo} onSplit={doSplit} onUnsplit={unSplit} onAckChange={ackChange} onGuests={saveGuests} canEdit={canEdit} isAdmin={isAdmin} isViewer={isCleaning} />}
       {cleanSel && <CleaningModal sel={cleanSel} onChange={setCleanSel} onSave={saveCleaning} onDelete={deleteCleaning} onClose={() => setCleanSel(null)} vendors={vendors} onAddVendor={addVendor} canAddVendor={canEdit} canManage={canEdit} isLead={isLead} />}
       {vendorModal && <VendorModal vendors={vendors} onAdd={addVendor} onUpdate={updateVendor} onReorder={reorderVendors} onClose={() => setVendorModal(false)} />}
-      {propModal && <PropertyModal p={propModal} tags={tags} propTags={propTags} onToggle={toggleTagForProp} onRename={doRename} onOpenTagModal={() => { setPropModal(null); setTagModal(true); }} onClose={() => setPropModal(null)} isAdmin={isAdmin} canEditNote={canEdit} note={(propNotes[propModal.name] || {}).note || ""} address={(propNotes[propModal.name] || {}).address || ""} onSaveNote={saveNote} vendors={vendors} rates={rates} onSaveRate={saveRate} showRates={canEdit} />}
+      {billerModal && <VendorModal vendors={billers} onAdd={addBiller} onUpdate={updateBiller} onReorder={reorderBillers} onClose={() => setBillerModal(false)} title="請求先マスタ" placeholder="新しい請求先名" />}
+      {propModal && <PropertyModal p={propModal} tags={tags} propTags={propTags} onToggle={toggleTagForProp} onRename={doRename} onOpenTagModal={() => { setPropModal(null); setTagModal(true); }} onClose={() => setPropModal(null)} isAdmin={isAdmin} canEditNote={canEdit} note={(propNotes[propModal.name] || {}).note || ""} address={(propNotes[propModal.name] || {}).address || ""} billerId={(propNotes[propModal.name] || {}).biller_id || null} billers={billers} onSaveNote={saveNote} vendors={vendors} rates={rates} onSaveRate={saveRate} showRates={canEdit} />}
       {tagModal && isAdmin && <TagModal tags={tags} propTags={propTags} props={baseProps} onClose={() => setTagModal(false)}
         saveTags={saveTags} savePropTags={savePropTags} />}
     </div>
@@ -940,14 +961,16 @@ function TagModal({ tags, propTags, props, onClose, saveTags, savePropTags }) {
   );
 }
 
-function PropertyModal({ p, tags, propTags, onToggle, onRename, onOpenTagModal, onClose, isAdmin, canEditNote, note, address, onSaveNote, vendors, rates, onSaveRate, showRates }) {
+function PropertyModal({ p, tags, propTags, onToggle, onRename, onOpenTagModal, onClose, isAdmin, canEditNote, note, address, billerId, billers, onSaveNote, vendors, rates, onSaveRate, showRates }) {
   const [newName, setNewName] = useState(p.name);
   const [noteVal, setNoteVal] = useState(note || "");
   const [addrVal, setAddrVal] = useState(address || "");
   const cur = propTags[p.name] || [];
   const activeVendors = (vendors || []).filter((v) => !v.archived);
+  const activeBillers = (billers || []).filter((v) => !v.archived);
+  const billerName = (billers || []).find((v) => v.id === billerId)?.name || "";
   const mapUrl = (a) => /^https?:\/\//i.test(a.trim()) ? a.trim() : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(a.trim())}`;
-  const commit = (nextNote, nextAddr) => { if (nextNote !== (note || "") || nextAddr !== (address || "")) onSaveNote(p.name, nextNote, nextAddr); };
+  const commit = (nextNote, nextAddr) => { if (nextNote !== (note || "") || nextAddr !== (address || "")) onSaveNote(p.name, nextNote, nextAddr, billerId); };
   return (
     <div className="ov" onClick={onClose}>
       <div className="modal" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
@@ -975,6 +998,16 @@ function PropertyModal({ p, tags, propTags, onToggle, onRename, onOpenTagModal, 
           </>
         ) : (
           <div style={{ fontSize: 13.5, color: "#344054", whiteSpace: "pre-wrap", background: "#F7F9FB", border: "1px solid #E3E7ED", borderRadius: 10, padding: 12, minHeight: 44 }}>{note || "（メモなし）"}</div>
+        )}
+
+        <div className="m-clean-t" style={{ marginTop: 16 }}>清掃の請求先</div>
+        {canEditNote ? (
+          <select className="m-memo" value={billerId || ""} onChange={(e) => onSaveNote(p.name, noteVal, addrVal, e.target.value ? Number(e.target.value) : null)}>
+            <option value="">（未設定）</option>
+            {activeBillers.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
+        ) : (
+          <div style={{ fontSize: 13.5, color: "#344054" }}>{billerName || "（未設定）"}</div>
         )}
 
         {showRates && (
@@ -1079,7 +1112,7 @@ function CleaningModal({ sel, onChange, onSave, onDelete, onClose, vendors, onAd
   );
 }
 
-function VendorModal({ vendors, onAdd, onUpdate, onReorder, onClose }) {
+function VendorModal({ vendors, onAdd, onUpdate, onReorder, onClose, title, placeholder }) {
   const [name, setName] = useState("");
   const move = (idx, dir) => {
     const ids = vendors.map((v) => v.id);
@@ -1092,10 +1125,10 @@ function VendorModal({ vendors, onAdd, onUpdate, onReorder, onClose }) {
     <div className="ov" onClick={onClose}>
       <div className="modal" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
         <div className="m-top" style={{ borderColor: "#0F766E" }}>
-          <b>清掃業者マスタ</b><button className="x" onClick={onClose}>✕</button>
+          <b>{title || "清掃業者マスタ"}</b><button className="x" onClick={onClose}>✕</button>
         </div>
         <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-          <input className="m-memo" placeholder="新しい業者名" value={name} onChange={(e) => setName(e.target.value)} />
+          <input className="m-memo" placeholder={placeholder || "新しい業者名"} value={name} onChange={(e) => setName(e.target.value)} />
           <button className="tg-addbtn" onClick={async () => { if (name.trim()) { await onAdd(name.trim()); setName(""); } }}>追加</button>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 340, overflow: "auto" }}>
