@@ -11,14 +11,17 @@ export async function GET() {
 
 export async function POST(req) {
   const b = await req.json().catch(() => ({}));
-  if (!b.property_name || !b.platform || !b.ical_url)
+  // 物件名の前後の空白（半角/全角）を除去して統一（統合漏れ防止）
+  const propertyName = (b.property_name || "").replace(/^[\s　]+|[\s　]+$/g, "");
+  const area = (b.area || "").replace(/^[\s　]+|[\s　]+$/g, "");
+  if (!propertyName || !b.platform || !b.ical_url)
     return NextResponse.json({ error: "物件名・サイト・iCal URL は必須です" }, { status: 400 });
   if (!["airbnb", "booking"].includes(b.platform))
     return NextResponse.json({ error: "platform が不正です" }, { status: 400 });
   const sql = db();
   const [row] = await sql`
     insert into feeds (property_name, area, platform, ical_url)
-    values (${b.property_name}, ${b.area || ""}, ${b.platform}, ${b.ical_url})
+    values (${propertyName}, ${area}, ${b.platform}, ${(b.ical_url || "").trim()})
     returning *`;
   return NextResponse.json({ feed: row });
 }
