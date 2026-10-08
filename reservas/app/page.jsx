@@ -962,8 +962,8 @@ function MonthGrid({ y, m, resv, cleans, onSel, onAddCleaning, onEditCleaning, p
           })}
           {bandsOf(week).map((b, bi) => (
             <div key={bi} className="cband"
-              style={{ left: `${b.left}%`, width: `calc(${b.width}% - 2px)`,
-                       background: b.bg, color: b.ink, border: b.block ? "1px dashed #C7CDD6" : "none" }}
+              style={{ left: `${b.left}%`, width: `calc(${b.width}% - 2px)`, boxSizing: "border-box",
+                       background: b.bg, color: b.ink, border: b.block ? "1px dashed #C7CDD6" : "1px solid rgba(0,0,0,.6)" }}
               onClick={(e) => { e.stopPropagation(); if (!b.block && onSel) onSel(b.r); }}>
               {b.label}
             </div>
