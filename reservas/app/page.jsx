@@ -18,6 +18,7 @@ const TAG_COLORS = ["#EF4444", "#F59E0B", "#10B981", "#3B82F6", "#8B5CF6", "#EC4
 
 const parseDate = (s) => { const [y, m, d] = String(s).slice(0, 10).split("-").map(Number); return new Date(y, m - 1, d); };
 const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const startOfMonth = (d) => new Date(d.getFullYear(), d.getMonth(), 1);
 const dayDiff = (a, b) => Math.round((startOfDay(a) - startOfDay(b)) / DAY_MS);
 const fmtMD = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
 const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -58,6 +59,8 @@ export default function Dashboard() {
   const [propModal, setPropModal] = useState(null);
   const [data, setData] = useState(null);
   const [view, setView] = useState("timeline");
+  const [calProp, setCalProp] = useState("");
+  const [calMonth, setCalMonth] = useState(() => startOfMonth(new Date()));
   const [plat, setPlat] = useState({ airbnb: true, booking: true });
   const [showBlocks, setShowBlocks] = useState(true);
   const [needInfoOnly, setNeedInfoOnly] = useState(false);
@@ -582,15 +585,35 @@ export default function Dashboard() {
             <div className="seg">
               <button className={view === "timeline" ? "on" : ""} onClick={() => setView("timeline")}>タイムライン</button>
               <button className={view === "list" ? "on" : ""} onClick={() => setView("list")}>リスト</button>
+              <button className={view === "calendar" ? "on" : ""} onClick={() => setView("calendar")}>カレンダー</button>
             </div>
             {view === "timeline" && (
               <div className="nav">
-                <button onClick={() => scrollRef.current?.scrollBy({ left: -7 * dayW, behavior: "smooth" })} title="左へ">◀</button>
-                <button onClick={() => scrollRef.current?.scrollBy({ left: 7 * dayW, behavior: "smooth" })} title="右へ">▶</button>
+                <button title="左へ" onClick={() => {
+                  const el = scrollRef.current;
+                  if (!el || el.scrollLeft <= 2) { setWinStart(new Date(winStart.getTime() - 7 * DAY_MS)); }
+                  else { el.scrollBy({ left: -7 * dayW, behavior: "smooth" }); }
+                }}>◀</button>
+                <button title="右へ" onClick={() => {
+                  const el = scrollRef.current;
+                  if (!el || el.scrollLeft + el.clientWidth >= el.scrollWidth - 2) { setWinStart(new Date(winStart.getTime() + 7 * DAY_MS)); }
+                  else { el.scrollBy({ left: 7 * dayW, behavior: "smooth" }); }
+                }}>▶</button>
                 <span className="nav-sep" />
                 <button onClick={() => setWinStart(new Date(winStart.getTime() - 7 * DAY_MS))}>‹ 前週</button>
                 <button onClick={() => { const d = startOfDay(new Date()); d.setDate(d.getDate() - 3); setWinStart(d); }}>今日</button>
                 <button onClick={() => setWinStart(new Date(winStart.getTime() + 7 * DAY_MS))}>次週 ›</button>
+              </div>
+            )}
+            {view === "calendar" && (
+              <div className="nav">
+                <select className="cal-sel" value={calProp} onChange={(e) => setCalProp(e.target.value)}>
+                  {props.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+                </select>
+                <span className="nav-sep" />
+                <button onClick={() => setCalMonth(new Date(calMonth.getFullYear(), calMonth.getMonth() - 1, 1))}>‹ 前月</button>
+                <button onClick={() => setCalMonth(startOfMonth(new Date()))}>今月</button>
+                <button onClick={() => setCalMonth(new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 1))}>次月 ›</button>
               </div>
             )}
             <div className="count mono">予約 {filtered.filter((r) => r.type === "booking").length} 件</div>
@@ -605,6 +628,12 @@ export default function Dashboard() {
               onAddCleaning={canCleanEdit ? ((pn, date) => setCleanSel({ property_name: pn, date, kind: "inhouse", memo: "" })) : null}
               onEditCleaning={canCleanEdit ? ((c) => setCleanSel({ ...c })) : null}
               onNameClick={(p) => setPropModal({ name: p.name, area: p.area })} />
+          ) : view === "calendar" ? (
+            <CalendarView rows={data || []} props={props} cleanings={cleaningVisible ? cleanings : []}
+              calProp={calProp || (props[0] && props[0].name) || ""} calMonth={calMonth}
+              onSel={tapEnabled ? setSel : null} canClean={canCleanEdit}
+              onAddCleaning={canCleanEdit ? ((pn, date) => setCleanSel({ property_name: pn, date, kind: "inhouse", memo: "" })) : null}
+              onEditCleaning={canCleanEdit ? ((c) => setCleanSel({ ...c })) : null} />
           ) : (
             <ListView rows={listRows} sort={sort} onSort={toggleSort} onSel={tapEnabled ? setSel : null} />
           )}
@@ -790,6 +819,57 @@ function ListView({ rows, sort, onSort, onSel }) {
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function CalendarView({ rows, props, cleanings, calProp, calMonth, onSel, canClean, onAddCleaning, onEditCleaning }) {
+  const propName = calProp;
+  const y = calMonth.getFullYear(), m = calMonth.getMonth();
+  const first = new Date(y, m, 1);
+  const gridStart = new Date(y, m, 1 - first.getDay()); // その月の週頭(日曜)
+  const cells = Array.from({ length: 42 }, (_, i) => new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i));
+  const todayStr = isoDate(startOfDay(new Date()));
+
+  const resv = (rows || []).filter((r) => r.property_name === propName);
+  const cleans = (cleanings || []).filter((c) => c.property_name === propName);
+
+  const resOn = (ds) => resv.filter((r) => isoDate(r.ci) <= ds && ds < isoDate(r.co));
+
+  return (
+    <div className="cal">
+      <div className="cal-title">{y}年 {m + 1}月 ／ <b>{propName || "（物件未選択）"}</b></div>
+      <div className="cal-grid">
+        {WD.map((w, i) => <div key={w} className={"cal-wd" + (i === 0 ? " sun" : i === 6 ? " sat" : "")}>{w}</div>)}
+        {cells.map((d, i) => {
+          const inMonth = d.getMonth() === m;
+          const ds = isoDate(d);
+          const rs = resOn(ds);
+          const r = rs.find((x) => x.type === "booking") || rs[0];
+          const block = r && r.type === "block";
+          const pf = r ? (PLATFORMS[r.platform] || PLATFORMS.airbnb) : null;
+          const isIn = r && isoDate(r.ci) === ds;
+          const cl = cleans.filter((c) => c.date === ds);
+          const guests = r && (r.adults || r.children) ? `${(r.adults || 0) + (r.children || 0)}名` : "";
+          return (
+            <div key={i} className={"cal-cell" + (inMonth ? "" : " out") + (ds === todayStr ? " today" : "")}
+              onClick={() => { if (r && !block && onSel) onSel(r); else if (!r && onAddCleaning) onAddCleaning(propName, ds); }}>
+              <div className={"cal-day" + (d.getDay() === 0 ? " sun" : d.getDay() === 6 ? " sat" : "")}>{d.getDate()}</div>
+              {r && (
+                <div className="cal-res" style={{ background: block ? "#EEF1F5" : pf.bar, color: block ? "#8A94A6" : "#fff", border: block ? "1px dashed #C7CDD6" : "none" }}>
+                  {block ? "ブロック" : (isIn ? (r.guest_name || `${r.nights}泊`) + (guests ? ` ${guests}` : "") : "　〃")}
+                </div>
+              )}
+              {cl.map((c) => (
+                <div key={c.id} className="cal-clean" onClick={(e) => { e.stopPropagation(); onEditCleaning && onEditCleaning(c); }}>
+                  🧹{c.vendor_name || (CLEANK[c.kind] || CLEANK.inhouse).label}
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+      <div className="cal-hint">予約をタップで詳細／空き日をタップで清掃追加（権限により異なります）。「〃」は滞在中の継続日です。</div>
     </div>
   );
 }
@@ -1255,6 +1335,28 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .cleanmark:hover { filter:brightness(1.1); }
 .cleanmark-lbl { font-size:9px; color:#fff; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .clean-legend { width:14px; height:9px; border-radius:3px; display:inline-block; flex:0 0 auto; }
+.cal-sel { padding:7px 10px; border:1px solid #D8DDE5; border-radius:8px; font-size:13px; font-family:inherit; max-width:200px; background:#fff; }
+.cal { background:#fff; border:1px solid #E3E7ED; border-radius:12px; padding:14px; }
+.cal-title { font-size:15px; margin-bottom:12px; color:#344054; }
+.cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:1px; background:#E8EBEF; border:1px solid #E8EBEF; border-radius:8px; overflow:hidden; }
+.cal-wd { background:#F7F9FB; text-align:center; font-size:12px; padding:7px 0; color:#667085; font-weight:600; }
+.cal-wd.sun { color:#DC2626; } .cal-wd.sat { color:#2563EB; }
+.cal-cell { background:#fff; min-height:86px; padding:4px; display:flex; flex-direction:column; gap:2px; cursor:pointer; }
+.cal-cell.out { background:#FAFBFC; }
+.cal-cell.out .cal-day { color:#C0C6CE; }
+.cal-cell.today { outline:2px solid #F59E0B; outline-offset:-2px; }
+.cal-cell:hover { background:#F4F8FF; }
+.cal-day { font-size:12.5px; color:#344054; font-weight:600; }
+.cal-day.sun { color:#DC2626; } .cal-day.sat { color:#2563EB; }
+.cal-res { font-size:10.5px; border-radius:4px; padding:2px 5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
+.cal-clean { font-size:10px; color:#0F766E; background:#E8F5F1; border-radius:4px; padding:1px 5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cal-hint { font-size:11.5px; color:#8A94A6; margin-top:10px; }
+@media (max-width:820px){
+  .cal-cell { min-height:62px; padding:2px; }
+  .cal-day { font-size:11px; }
+  .cal-res, .cal-clean { font-size:9px; padding:1px 3px; }
+  .cal-sel { max-width:150px; }
+}
 .lst-wrap { background:#fff; border:1px solid #E3E7ED; border-radius:12px; overflow:auto; }
 .lst { width:100%; border-collapse:collapse; font-size:13px; }
 .lst th { text-align:left; padding:11px 14px; font-size:11px; text-transform:uppercase; color:#8A94A6; border-bottom:1px solid #E3E7ED; cursor:pointer; white-space:nowrap; position:sticky; top:0; background:#fff; }
