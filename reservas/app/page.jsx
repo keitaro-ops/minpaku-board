@@ -22,6 +22,47 @@ const startOfMonth = (d) => new Date(d.getFullYear(), d.getMonth(), 1);
 const dayDiff = (a, b) => Math.round((startOfDay(a) - startOfDay(b)) / DAY_MS);
 const fmtMD = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
 const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+// 日本の祝日（振替休日・国民の休日も自動計算。毎年の更新不要）
+const _holCache = {};
+function jpHolidaySet(year) {
+  if (_holCache[year]) return _holCache[year];
+  const z = (n) => String(n).padStart(2, "0");
+  const iso = (mo, da) => `${year}-${z(mo)}-${z(da)}`;
+  const isoD = (d) => `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+  const nthMonday = (mo, nth) => {
+    const first = new Date(year, mo - 1, 1).getDay();
+    return 1 + ((1 - first + 7) % 7) + (nth - 1) * 7;
+  };
+  const vernal = Math.floor(20.8431 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4));
+  const autumnal = Math.floor(23.2488 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4));
+  const base = {};
+  const add = (mo, da) => { base[iso(mo, da)] = true; };
+  add(1, 1); add(1, nthMonday(1, 2)); add(2, 11); add(2, 23); add(3, vernal);
+  add(4, 29); add(5, 3); add(5, 4); add(5, 5); add(7, nthMonday(7, 3)); add(8, 11);
+  add(9, nthMonday(9, 3)); add(9, autumnal); add(10, nthMonday(10, 2)); add(11, 3); add(11, 23);
+  // 国民の休日（前後を祝日に挟まれた平日：主に敬老の日と秋分の日の間）
+  const snap = { ...base };
+  for (let t = new Date(year, 0, 1).getTime(); t <= new Date(year, 11, 31).getTime(); t += 86400000) {
+    const d = new Date(t); const k = isoD(d);
+    if (snap[k] || d.getDay() === 0) continue;
+    if (snap[isoD(new Date(t - 86400000))] && snap[isoD(new Date(t + 86400000))]) base[k] = true;
+  }
+  // 振替休日（祝日が日曜なら、次の非祝日を休日に）
+  for (const k of Object.keys(base)) {
+    const [yy, mm, dd] = k.split("-").map(Number);
+    const dt = new Date(yy, mm - 1, dd);
+    if (dt.getDay() === 0) {
+      let nx = new Date(dt.getTime() + 86400000);
+      while (base[isoD(nx)]) nx = new Date(nx.getTime() + 86400000);
+      base[isoD(nx)] = true;
+    }
+  }
+  _holCache[year] = base;
+  return base;
+}
+const isJpHoliday = (isoStr) => !!jpHolidaySet(Number(isoStr.slice(0, 4)))[isoStr];
+
 const uid = () => Math.random().toString(36).slice(2, 9);
 const readRole = () => { try { const m = document.cookie.match(/(?:^|; )rb_role=([^;]+)/); return m ? decodeURIComponent(m[1]) : "admin"; } catch { return "admin"; } };
 const mapRows = (rows) => rows.map((x, i) => ({
@@ -681,7 +722,7 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
               </div>
               <div style={{ display: "flex" }}>
                 {days.map((d, i) => {
-                  const wknd = d.getDay() === 0 || d.getDay() === 6;
+                  const wknd = d.getDay() === 0 || d.getDay() === 6 || isJpHoliday(isoDate(d));
                   const isToday = dayDiff(d, today) === 0;
                   return (
                     <div key={i} className={"tl-day" + (wknd ? " wknd" : "") + (isToday ? " today" : "")} style={{ width: dayW }}>
@@ -731,7 +772,7 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
                   </div>
                   <div className="tl-lane" style={{ width: gridW }}>
                     {days.map((d, i) => {
-                      const wknd = d.getDay() === 0 || d.getDay() === 6;
+                      const wknd = d.getDay() === 0 || d.getDay() === 6 || isJpHoliday(isoDate(d));
                       return <div key={i} className={"cell" + (wknd ? " wknd" : "") + (onAddCleaning ? " addable" : "")} style={{ width: dayW }}
                         onClick={onAddCleaning ? (() => {
                           const ds = isoDate(d);
@@ -895,11 +936,12 @@ function MonthGrid({ y, m, resv, cleans, onSel, onAddCleaning, onEditCleaning, p
         <div className="cweek" key={wi}>
           {week.map((d, c) => {
             const ds = d ? dstr(d) : "";
+            const hol = d ? isJpHoliday(ds) : false;
             const cls = cleans.filter((x) => x.date === ds);
             return (
               <div key={c} className={"ccell" + (!d ? " empty" : "") + (d && ds === todayStr ? " today" : "")}
                 onClick={() => { if (!d) return; if (onAddCleaning) onAddCleaning(propName, ds); }}>
-                {d ? <span className={"cnum" + (c === 0 ? " sun" : c === 6 ? " sat" : "")}>{d}</span> : null}
+                {d ? <span className={"cnum" + (hol || c === 0 ? " sun" : c === 6 ? " sat" : "")}>{d}</span> : null}
                 {cls.map((cc) => (
                   <span key={cc.id} className="cdot" title={`清掃 ${cc.vendor_name || (CLEANK[cc.kind] || CLEANK.inhouse).label}`}
                     onClick={(e) => { e.stopPropagation(); onEditCleaning && onEditCleaning(cc); }}>🧹</span>
