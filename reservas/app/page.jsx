@@ -869,15 +869,16 @@ function CalendarView({ rows, props, cleanings, calProp, calMonth, onSel, canCle
   const todayStr = isoDate(startOfDay(new Date()));
   const resv = (rows || []).filter((r) => r.property_name === propName);
   const cleans = (cleanings || []).filter((c) => c.property_name === propName);
-  const curRef = useRef(null);
-  // calMonth を起点に 前1ヶ月〜後6ヶ月 を縦に連続表示
+  const topRef = useRef(null);
+  // calMonth を先頭に、縦に連続表示（先1年分）
   const months = [];
-  for (let k = -1; k <= 12; k++) months.push(new Date(calMonth.getFullYear(), calMonth.getMonth() + k, 1));
-  // calMonth が変わったら、その月の見出しへスクロール
-  useEffect(() => { if (curRef.current) curRef.current.scrollIntoView({ block: "start", behavior: "auto" }); }, [calMonth, propName]);
+  for (let k = 0; k <= 12; k++) months.push(new Date(calMonth.getFullYear(), calMonth.getMonth() + k, 1));
+  // 月切替・物件切替・カレンダー表示時は、カレンダーの一番上から表示する
+  useEffect(() => { if (topRef.current) topRef.current.scrollIntoView({ block: "start", behavior: "auto" }); }, [calMonth, propName]);
 
   return (
     <div className="cal">
+      <div ref={topRef} aria-hidden style={{ position: "absolute", top: 0 }} />
       <div className="cal-title"><b>{propName || "（物件未選択）"}</b></div>
       <div className="cal-wdrow">
         {WD.map((w, i) => <div key={w} className={"cal-wd" + (i === 0 ? " sun" : i === 6 ? " sat" : "")}>{w}</div>)}
@@ -885,7 +886,7 @@ function CalendarView({ rows, props, cleanings, calProp, calMonth, onSel, canCle
       {months.map((mo, idx) => (
         <MonthGrid key={mo.getFullYear() + "-" + mo.getMonth()} y={mo.getFullYear()} m={mo.getMonth()}
           resv={resv} cleans={cleans} onSel={onSel} onAddCleaning={onAddCleaning} onEditCleaning={onEditCleaning}
-          propName={propName} todayStr={todayStr} rootRef={idx === 1 ? curRef : null} />
+          propName={propName} todayStr={todayStr} rootRef={null} />
       ))}
       <div className="cal-hint">予約バーをタップで詳細／空き日をタップで清掃追加（権限により異なります）。縦スクロールで前後の月が見られます。</div>
     </div>
@@ -1425,7 +1426,7 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .cleanmark-lbl { font-size:9px; color:#fff; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .clean-legend { width:14px; height:9px; border-radius:3px; display:inline-block; flex:0 0 auto; }
 .cal-sel { padding:7px 10px; border:1px solid #D8DDE5; border-radius:8px; font-size:13px; font-family:inherit; max-width:200px; background:#fff; }
-.cal { background:#fff; border:1px solid #E3E7ED; border-radius:12px; padding:14px; }
+.cal { background:#fff; border:1px solid #E3E7ED; border-radius:12px; padding:14px; position:relative; }
 .cal-title { font-size:15px; margin-bottom:10px; color:#344054; }
 .cal-wdrow { display:grid; grid-template-columns:repeat(7,1fr); position:sticky; top:0; background:#fff; z-index:3; border-bottom:1px solid #EDF0F4; }
 .cal-wd { text-align:center; font-size:12px; padding:7px 0; color:#667085; font-weight:600; }
