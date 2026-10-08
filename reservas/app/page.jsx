@@ -625,8 +625,8 @@ export default function Dashboard() {
           <div className="toolbar">
             <div className="seg">
               <button className={view === "timeline" ? "on" : ""} onClick={() => setView("timeline")}>タイムライン</button>
-              <button className={view === "list" ? "on" : ""} onClick={() => setView("list")}>リスト</button>
               <button className={view === "calendar" ? "on" : ""} onClick={() => setView("calendar")}>カレンダー</button>
+              <button className={view === "list" ? "on" : ""} onClick={() => setView("list")}>リスト</button>
             </div>
             {view === "timeline" && (
               <div className="nav">
