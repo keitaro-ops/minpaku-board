@@ -913,19 +913,28 @@ function MonthGrid({ y, m, resv, cleans, onSel, onAddCleaning, onEditCleaning, p
         const ds = dstr(d);
         if (isoDate(r.ci) <= ds && ds < isoDate(r.co)) { if (s < 0) s = c; e = c; }
       }
+      const block = r.type === "block";
+      const pf = PLATFORMS[r.platform] || PLATFORMS.airbnb;
+      const bg = block ? "#EEF1F5" : pf.bar;
+      const ink = block ? "#8A94A6" : "#fff";
+      const ciInWeek = week.some((d) => d && dstr(d) === isoDate(r.ci));
+      const coCol = week.findIndex((d) => d && dstr(d) === isoDate(r.co));
+      const coInWeek = coCol >= 0;
       if (s >= 0) {
-        const block = r.type === "block";
-        const pf = PLATFORMS[r.platform] || PLATFORMS.airbnb;
-        const ciInWeek = week.some((d) => d && dstr(d) === isoDate(r.ci));
-        const coInWeek = week.some((d) => d && dstr(d) === isoDate(r.co));
-        // チェックイン日はほぼ左端から、チェックアウト日に少しだけ帯をかける（Airbnb風）
+        // 宿泊帯：チェックイン日はほぼ左端から、チェックアウト日に少しだけ帯をかける（Airbnb風）
         const leftCol = ciInWeek ? s + 0.12 : s;
-        const rightCol = coInWeek ? (e + 1 + 0.28) : (e + 1);
+        const rightCol = coInWeek ? (coCol + 0.28) : (e + 1);
         const guests = (r.adults || r.children) ? ` ${(r.adults || 0) + (r.children || 0)}名` : "";
         out.push({ r, block,
           left: (leftCol / 7) * 100, width: ((rightCol - leftCol) / 7) * 100,
-          bg: block ? "#EEF1F5" : pf.bar, ink: block ? "#8A94A6" : "#fff",
+          bg, ink,
           label: block ? "ブロック" : (ciInWeek ? (r.guest_name || `${r.nights}泊`) + guests : "") });
+      } else if (coInWeek) {
+        // この週には宿泊日が無いが、チェックアウト日だけある（前月・前週からの連続）
+        // → チェックアウト日に少しだけ帯を出す（月またぎでも途切れないように）
+        out.push({ r, block,
+          left: (coCol / 7) * 100, width: (0.28 / 7) * 100,
+          bg, ink, label: "" });
       }
     });
     return out;
