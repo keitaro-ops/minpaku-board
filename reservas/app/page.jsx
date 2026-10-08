@@ -1435,7 +1435,7 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .cmonth { margin-top:14px; }
 .cmonth-h { font-size:14px; font-weight:700; color:#10151D; margin:6px 2px 6px; }
 .cweek { display:grid; grid-template-columns:repeat(7,1fr); position:relative; }
-.ccell { min-height:74px; border-right:1px solid #EFF1F4; border-bottom:1px solid #EFF1F4; padding:3px 4px; cursor:pointer; position:relative; }
+.ccell { min-height:120px; border-right:1px solid #EFF1F4; border-bottom:1px solid #EFF1F4; padding:3px 4px; cursor:pointer; position:relative; }
 .cweek .ccell:first-child { border-left:1px solid #EFF1F4; }
 .ccell.empty { background:#FAFBFC; cursor:default; }
 .ccell.today { background:#FFF7E6; }
