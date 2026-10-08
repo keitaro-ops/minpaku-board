@@ -825,51 +825,94 @@ function ListView({ rows, sort, onSort, onSel }) {
 
 function CalendarView({ rows, props, cleanings, calProp, calMonth, onSel, canClean, onAddCleaning, onEditCleaning }) {
   const propName = calProp;
-  const y = calMonth.getFullYear(), m = calMonth.getMonth();
-  const first = new Date(y, m, 1);
-  const gridStart = new Date(y, m, 1 - first.getDay()); // その月の週頭(日曜)
-  const cells = Array.from({ length: 42 }, (_, i) => new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i));
   const todayStr = isoDate(startOfDay(new Date()));
-
   const resv = (rows || []).filter((r) => r.property_name === propName);
   const cleans = (cleanings || []).filter((c) => c.property_name === propName);
-
-  const resOn = (ds) => resv.filter((r) => isoDate(r.ci) <= ds && ds < isoDate(r.co));
+  const curRef = useRef(null);
+  // calMonth を起点に 前1ヶ月〜後6ヶ月 を縦に連続表示
+  const months = [];
+  for (let k = -1; k <= 6; k++) months.push(new Date(calMonth.getFullYear(), calMonth.getMonth() + k, 1));
+  // calMonth が変わったら、その月の見出しへスクロール
+  useEffect(() => { if (curRef.current) curRef.current.scrollIntoView({ block: "start", behavior: "auto" }); }, [calMonth, propName]);
 
   return (
     <div className="cal">
-      <div className="cal-title">{y}年 {m + 1}月 ／ <b>{propName || "（物件未選択）"}</b></div>
-      <div className="cal-grid">
+      <div className="cal-title"><b>{propName || "（物件未選択）"}</b></div>
+      <div className="cal-wdrow">
         {WD.map((w, i) => <div key={w} className={"cal-wd" + (i === 0 ? " sun" : i === 6 ? " sat" : "")}>{w}</div>)}
-        {cells.map((d, i) => {
-          const inMonth = d.getMonth() === m;
-          const ds = isoDate(d);
-          const rs = resOn(ds);
-          const r = rs.find((x) => x.type === "booking") || rs[0];
-          const block = r && r.type === "block";
-          const pf = r ? (PLATFORMS[r.platform] || PLATFORMS.airbnb) : null;
-          const isIn = r && isoDate(r.ci) === ds;
-          const cl = cleans.filter((c) => c.date === ds);
-          const guests = r && (r.adults || r.children) ? `${(r.adults || 0) + (r.children || 0)}名` : "";
-          return (
-            <div key={i} className={"cal-cell" + (inMonth ? "" : " out") + (ds === todayStr ? " today" : "")}
-              onClick={() => { if (r && !block && onSel) onSel(r); else if (!r && onAddCleaning) onAddCleaning(propName, ds); }}>
-              <div className={"cal-day" + (d.getDay() === 0 ? " sun" : d.getDay() === 6 ? " sat" : "")}>{d.getDate()}</div>
-              {r && (
-                <div className="cal-res" style={{ background: block ? "#EEF1F5" : pf.bar, color: block ? "#8A94A6" : "#fff", border: block ? "1px dashed #C7CDD6" : "none" }}>
-                  {block ? "ブロック" : (isIn ? (r.guest_name || `${r.nights}泊`) + (guests ? ` ${guests}` : "") : "　〃")}
-                </div>
-              )}
-              {cl.map((c) => (
-                <div key={c.id} className="cal-clean" onClick={(e) => { e.stopPropagation(); onEditCleaning && onEditCleaning(c); }}>
-                  🧹{c.vendor_name || (CLEANK[c.kind] || CLEANK.inhouse).label}
-                </div>
-              ))}
-            </div>
-          );
-        })}
       </div>
-      <div className="cal-hint">予約をタップで詳細／空き日をタップで清掃追加（権限により異なります）。「〃」は滞在中の継続日です。</div>
+      {months.map((mo, idx) => (
+        <MonthGrid key={mo.getFullYear() + "-" + mo.getMonth()} y={mo.getFullYear()} m={mo.getMonth()}
+          resv={resv} cleans={cleans} onSel={onSel} onAddCleaning={onAddCleaning} onEditCleaning={onEditCleaning}
+          propName={propName} todayStr={todayStr} rootRef={idx === 1 ? curRef : null} />
+      ))}
+      <div className="cal-hint">予約バーをタップで詳細／空き日をタップで清掃追加（権限により異なります）。縦スクロールで前後の月が見られます。</div>
+    </div>
+  );
+}
+
+function MonthGrid({ y, m, resv, cleans, onSel, onAddCleaning, onEditCleaning, propName, todayStr, rootRef }) {
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const startWd = new Date(y, m, 1).getDay();
+  const weeks = [];
+  let wk = new Array(startWd).fill(0);
+  for (let d = 1; d <= daysInMonth; d++) { wk.push(d); if (wk.length === 7) { weeks.push(wk); wk = []; } }
+  if (wk.length) { while (wk.length < 7) wk.push(0); weeks.push(wk); }
+  const dstr = (d) => isoDate(new Date(y, m, d));
+
+  // その週の予約を帯に変換（週内の連続区間）
+  function bandsOf(week) {
+    const out = [];
+    resv.forEach((r) => {
+      let s = -1, e = -1;
+      for (let c = 0; c < 7; c++) {
+        const d = week[c]; if (!d) continue;
+        const ds = dstr(d);
+        if (isoDate(r.ci) <= ds && ds < isoDate(r.co)) { if (s < 0) s = c; e = c; }
+      }
+      if (s >= 0) {
+        const block = r.type === "block";
+        const pf = PLATFORMS[r.platform] || PLATFORMS.airbnb;
+        // チェックイン日がこの週に含まれていればラベル（名前/泊数）を表示
+        const ciInWeek = week.some((d) => d && dstr(d) === isoDate(r.ci));
+        const guests = (r.adults || r.children) ? ` ${(r.adults || 0) + (r.children || 0)}名` : "";
+        out.push({ r, s, e, block,
+          bg: block ? "#EEF1F5" : pf.bar, ink: block ? "#8A94A6" : "#fff",
+          label: block ? "ブロック" : (ciInWeek ? (r.guest_name || `${r.nights}泊`) + guests : "") });
+      }
+    });
+    return out;
+  }
+
+  return (
+    <div className="cmonth" ref={rootRef}>
+      <div className="cmonth-h">{y}年 {m + 1}月</div>
+      {weeks.map((week, wi) => (
+        <div className="cweek" key={wi}>
+          {week.map((d, c) => {
+            const ds = d ? dstr(d) : "";
+            const cls = cleans.filter((x) => x.date === ds);
+            return (
+              <div key={c} className={"ccell" + (!d ? " empty" : "") + (d && ds === todayStr ? " today" : "")}
+                onClick={() => { if (!d) return; if (onAddCleaning) onAddCleaning(propName, ds); }}>
+                {d ? <span className={"cnum" + (c === 0 ? " sun" : c === 6 ? " sat" : "")}>{d}</span> : null}
+                {cls.map((cc) => (
+                  <span key={cc.id} className="cdot" title={`清掃 ${cc.vendor_name || (CLEANK[cc.kind] || CLEANK.inhouse).label}`}
+                    onClick={(e) => { e.stopPropagation(); onEditCleaning && onEditCleaning(cc); }}>🧹</span>
+                ))}
+              </div>
+            );
+          })}
+          {bandsOf(week).map((b, bi) => (
+            <div key={bi} className="cband"
+              style={{ left: `calc(${(b.s / 7) * 100}% + 3px)`, width: `calc(${((b.e - b.s + 1) / 7) * 100}% - 6px)`,
+                       background: b.bg, color: b.ink, border: b.block ? "1px dashed #C7CDD6" : "none" }}
+              onClick={(e) => { e.stopPropagation(); if (!b.block && onSel) onSel(b.r); }}>
+              {b.label}
+            </div>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
@@ -1337,25 +1380,28 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .clean-legend { width:14px; height:9px; border-radius:3px; display:inline-block; flex:0 0 auto; }
 .cal-sel { padding:7px 10px; border:1px solid #D8DDE5; border-radius:8px; font-size:13px; font-family:inherit; max-width:200px; background:#fff; }
 .cal { background:#fff; border:1px solid #E3E7ED; border-radius:12px; padding:14px; }
-.cal-title { font-size:15px; margin-bottom:12px; color:#344054; }
-.cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:1px; background:#E8EBEF; border:1px solid #E8EBEF; border-radius:8px; overflow:hidden; }
-.cal-wd { background:#F7F9FB; text-align:center; font-size:12px; padding:7px 0; color:#667085; font-weight:600; }
+.cal-title { font-size:15px; margin-bottom:10px; color:#344054; }
+.cal-wdrow { display:grid; grid-template-columns:repeat(7,1fr); position:sticky; top:0; background:#fff; z-index:3; border-bottom:1px solid #EDF0F4; }
+.cal-wd { text-align:center; font-size:12px; padding:7px 0; color:#667085; font-weight:600; }
 .cal-wd.sun { color:#DC2626; } .cal-wd.sat { color:#2563EB; }
-.cal-cell { background:#fff; min-height:86px; padding:4px; display:flex; flex-direction:column; gap:2px; cursor:pointer; }
-.cal-cell.out { background:#FAFBFC; }
-.cal-cell.out .cal-day { color:#C0C6CE; }
-.cal-cell.today { outline:2px solid #F59E0B; outline-offset:-2px; }
-.cal-cell:hover { background:#F4F8FF; }
-.cal-day { font-size:12.5px; color:#344054; font-weight:600; }
-.cal-day.sun { color:#DC2626; } .cal-day.sat { color:#2563EB; }
-.cal-res { font-size:10.5px; border-radius:4px; padding:2px 5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
-.cal-clean { font-size:10px; color:#0F766E; background:#E8F5F1; border-radius:4px; padding:1px 5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.cal-hint { font-size:11.5px; color:#8A94A6; margin-top:10px; }
+.cmonth { margin-top:14px; }
+.cmonth-h { font-size:14px; font-weight:700; color:#10151D; margin:6px 2px 6px; }
+.cweek { display:grid; grid-template-columns:repeat(7,1fr); position:relative; }
+.ccell { min-height:74px; border-right:1px solid #EFF1F4; border-bottom:1px solid #EFF1F4; padding:3px 4px; cursor:pointer; position:relative; }
+.cweek .ccell:first-child { border-left:1px solid #EFF1F4; }
+.ccell.empty { background:#FAFBFC; cursor:default; }
+.ccell.today { background:#FFF7E6; }
+.ccell:not(.empty):hover { background:#F4F8FF; }
+.cnum { font-size:12.5px; color:#344054; font-weight:600; }
+.cnum.sun { color:#DC2626; } .cnum.sat { color:#2563EB; }
+.cdot { position:absolute; right:3px; bottom:2px; font-size:11px; cursor:pointer; }
+.cband { position:absolute; top:22px; height:20px; line-height:20px; border-radius:6px; font-size:10.5px; font-weight:600;
+  padding:0 7px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer; z-index:2; box-shadow:0 1px 2px rgba(0,0,0,.12); }
 @media (max-width:820px){
-  .cal-cell { min-height:62px; padding:2px; }
-  .cal-day { font-size:11px; }
-  .cal-res, .cal-clean { font-size:9px; padding:1px 3px; }
-  .cal-sel { max-width:150px; }
+  .ccell { min-height:56px; padding:2px 3px; }
+  .cnum { font-size:11px; }
+  .cband { top:18px; height:17px; line-height:17px; font-size:9px; padding:0 4px; }
+  .cmonth-h { font-size:13px; }
 }
 .lst-wrap { background:#fff; border:1px solid #E3E7ED; border-radius:12px; overflow:auto; }
 .lst { width:100%; border-collapse:collapse; font-size:13px; }
