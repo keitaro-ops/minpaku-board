@@ -831,7 +831,7 @@ function CalendarView({ rows, props, cleanings, calProp, calMonth, onSel, canCle
   const curRef = useRef(null);
   // calMonth を起点に 前1ヶ月〜後6ヶ月 を縦に連続表示
   const months = [];
-  for (let k = -1; k <= 6; k++) months.push(new Date(calMonth.getFullYear(), calMonth.getMonth() + k, 1));
+  for (let k = -1; k <= 12; k++) months.push(new Date(calMonth.getFullYear(), calMonth.getMonth() + k, 1));
   // calMonth が変わったら、その月の見出しへスクロール
   useEffect(() => { if (curRef.current) curRef.current.scrollIntoView({ block: "start", behavior: "auto" }); }, [calMonth, propName]);
 
@@ -873,10 +873,14 @@ function MonthGrid({ y, m, resv, cleans, onSel, onAddCleaning, onEditCleaning, p
       if (s >= 0) {
         const block = r.type === "block";
         const pf = PLATFORMS[r.platform] || PLATFORMS.airbnb;
-        // チェックイン日がこの週に含まれていればラベル（名前/泊数）を表示
         const ciInWeek = week.some((d) => d && dstr(d) === isoDate(r.ci));
+        const coInWeek = week.some((d) => d && dstr(d) === isoDate(r.co));
+        // チェックイン日はほぼ左端から、チェックアウト日に少しだけ帯をかける（Airbnb風）
+        const leftCol = ciInWeek ? s + 0.12 : s;
+        const rightCol = coInWeek ? (e + 1 + 0.28) : (e + 1);
         const guests = (r.adults || r.children) ? ` ${(r.adults || 0) + (r.children || 0)}名` : "";
-        out.push({ r, s, e, block,
+        out.push({ r, block,
+          left: (leftCol / 7) * 100, width: ((rightCol - leftCol) / 7) * 100,
           bg: block ? "#EEF1F5" : pf.bar, ink: block ? "#8A94A6" : "#fff",
           label: block ? "ブロック" : (ciInWeek ? (r.guest_name || `${r.nights}泊`) + guests : "") });
       }
@@ -905,7 +909,7 @@ function MonthGrid({ y, m, resv, cleans, onSel, onAddCleaning, onEditCleaning, p
           })}
           {bandsOf(week).map((b, bi) => (
             <div key={bi} className="cband"
-              style={{ left: `calc(${(b.s / 7) * 100}% + 3px)`, width: `calc(${((b.e - b.s + 1) / 7) * 100}% - 6px)`,
+              style={{ left: `${b.left}%`, width: `calc(${b.width}% - 2px)`,
                        background: b.bg, color: b.ink, border: b.block ? "1px dashed #C7CDD6" : "none" }}
               onClick={(e) => { e.stopPropagation(); if (!b.block && onSel) onSel(b.r); }}>
               {b.label}
