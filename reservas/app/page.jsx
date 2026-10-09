@@ -1443,23 +1443,24 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .cal-wdrow { display:grid; grid-template-columns:repeat(7,1fr); position:sticky; top:0; background:#fff; z-index:3; border-bottom:1px solid #EDF0F4; }
 .cal-wd { text-align:center; font-size:12px; padding:7px 0; color:#667085; font-weight:600; }
 .cal-wd.sun { color:#DC2626; } .cal-wd.sat { color:#2563EB; }
-.cmonth { margin-top:14px; }
-.cmonth-h { font-size:14px; font-weight:700; color:#10151D; margin:6px 2px 6px; }
+.cmonth { margin-top:14px; background:#F3F5F8; border-radius:14px; padding:6px 6px 3px; }
+.cmonth-h { font-size:14px; font-weight:700; color:#10151D; margin:4px 6px 8px; }
+/* トラックは等幅のまま（gapなし）→ 帯の位置は保つ。セルは margin でカード風の余白を作る */
 .cweek { display:grid; grid-template-columns:repeat(7,1fr); position:relative; }
-.ccell { min-height:120px; border-right:1px solid #EFF1F4; border-bottom:1px solid #EFF1F4; padding:3px 4px; cursor:pointer; position:relative; }
-.cweek .ccell:first-child { border-left:1px solid #EFF1F4; }
-.ccell.empty { background:#FAFBFC; cursor:default; }
-.ccell.today { background:#FFF7E6; }
-.ccell:not(.empty):hover { background:#F4F8FF; }
+.ccell { min-height:120px; margin:3px; background:#fff; border:1px solid #E6E9EE; border-radius:10px; padding:4px 6px; cursor:pointer; position:relative; box-shadow:0 1px 2px rgba(16,24,40,.04); }
+.ccell.empty { background:transparent; border:1px dashed #DDE1E7; box-shadow:none; cursor:default; }
+.ccell.today { background:#FFF7E6; border-color:#F2D98C; }
+.ccell:not(.empty):hover { background:#F7FAFF; }
 .cnum { font-size:12.5px; color:#344054; font-weight:600; }
 .cnum.sun { color:#DC2626; } .cnum.sat { color:#2563EB; }
 .cdot { position:absolute; right:3px; bottom:2px; font-size:11px; cursor:pointer; }
 .cband { position:absolute; top:22px; height:20px; line-height:20px; border-radius:6px; font-size:10.5px; font-weight:600;
   padding:0 7px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer; z-index:2; box-shadow:0 1px 2px rgba(0,0,0,.12); }
 @media (max-width:820px){
-  .ccell { min-height:56px; padding:2px 3px; }
+  .cmonth { padding:4px 4px 2px; border-radius:12px; }
+  .ccell { min-height:58px; margin:2px; padding:3px 4px; border-radius:8px; }
   .cnum { font-size:11px; }
-  .cband { top:18px; height:17px; line-height:17px; font-size:9px; padding:0 4px; }
+  .cband { top:20px; height:17px; line-height:17px; font-size:9px; padding:0 4px; }
   .cmonth-h { font-size:13px; }
 }
 .lst-wrap { background:#fff; border:1px solid #E3E7ED; border-radius:12px; overflow:auto; }
