@@ -927,14 +927,14 @@ function MonthGrid({ y, m, resv, cleans, onSel, onAddCleaning, onEditCleaning, p
         const guests = (r.adults || r.children) ? ` ${(r.adults || 0) + (r.children || 0)}名` : "";
         out.push({ r, block,
           left: (leftCol / 7) * 100, width: ((rightCol - leftCol) / 7) * 100,
-          bg, ink,
+          bg, ink, roundL: ciInWeek, roundR: coInWeek,
           label: block ? "ブロック" : (ciInWeek ? (r.guest_name || `${r.nights}泊`) + guests : "") });
       } else if (coInWeek) {
         // この週には宿泊日が無いが、チェックアウト日だけある（前月・前週からの連続）
         // → チェックアウト日に少しだけ帯を出す（月またぎでも途切れないように）
         out.push({ r, block,
           left: (coCol / 7) * 100, width: (0.28 / 7) * 100,
-          bg, ink, label: "" });
+          bg, ink, roundL: false, roundR: true, label: "" });
       }
     });
     return out;
@@ -962,8 +962,10 @@ function MonthGrid({ y, m, resv, cleans, onSel, onAddCleaning, onEditCleaning, p
           })}
           {bandsOf(week).map((b, bi) => (
             <div key={bi} className="cband"
-              style={{ left: `${b.left}%`, width: `calc(${b.width}% - 2px)`, boxSizing: "border-box",
-                       background: b.bg, color: b.ink, border: b.block ? "1px dashed #C7CDD6" : "1px solid rgba(0,0,0,.6)" }}
+              style={{ left: `calc(${b.left}% + ${b.roundL ? 1 : 0}px)`, width: `calc(${b.width}% - ${(b.roundL ? 1 : 0) + (b.roundR ? 1 : 0)}px)`, boxSizing: "border-box",
+                       background: b.bg, color: b.ink, border: b.block ? "1px dashed #C7CDD6" : "1px solid rgba(0,0,0,.6)",
+                       borderTopLeftRadius: b.roundL ? 999 : 0, borderBottomLeftRadius: b.roundL ? 999 : 0,
+                       borderTopRightRadius: b.roundR ? 999 : 0, borderBottomRightRadius: b.roundR ? 999 : 0 }}
               onClick={(e) => { e.stopPropagation(); if (!b.block && onSel) onSel(b.r); }}>
               {b.label}
             </div>
