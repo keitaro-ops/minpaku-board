@@ -8,6 +8,15 @@ export async function POST(req) {
   if (!b.property_name || !b.check_in || !b.check_out)
     return NextResponse.json({ error: "必須項目が不足" }, { status: 400 });
   const sql = db();
+  // 保存先テーブルを自動作成（無ければ）。初回のトグルで自動セットアップされる。
+  await sql`
+    create table if not exists parking_status (
+      property_name text not null,
+      check_in  date not null,
+      check_out date not null,
+      parking   boolean not null default false,
+      primary key (property_name, check_in, check_out)
+    )`;
   await sql`
     insert into parking_status (property_name, check_in, check_out, parking)
     values (${b.property_name}, ${b.check_in}, ${b.check_out}, ${!!b.parking})
