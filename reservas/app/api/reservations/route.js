@@ -15,7 +15,7 @@ const key = (n, ci, co) => `${n}|${ci}|${co}`;
 export async function GET() {
   try {
     const sql = db();
-    const [resv, ov, ci, cl, sp, rd, mm, gc, cf, gman] = await Promise.all([
+    const [resv, ov, ci, cl, sp, rd, mm, gc, cf, gman, pk] = await Promise.all([
       sql`select property_name, area, platform, type,
                  to_char(check_in,'YYYY-MM-DD') as check_in,
                  to_char(check_out,'YYYY-MM-DD') as check_out,
@@ -29,6 +29,7 @@ export async function GET() {
       sql`select res_code, adults, children, guest_name from guest_counts`,
       sql`select res_code from change_flags where acknowledged = false`,
       sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, adults, children from guest_manual`,
+      sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, parking from parking_status`.catch(() => []),
     ]);
 
     const gcM = new Map(gc.map((x) => [x.res_code, x]));
@@ -41,6 +42,7 @@ export async function GET() {
     const spM = new Map(sp.map((x) => [key(x.property_name, x.check_in, x.check_out), x.boundaries]));
     const rdM = new Map(rd.map((x) => [key(x.property_name, x.check_in, x.check_out), x.ready]));
     const mmM = new Map(mm.map((x) => [key(x.property_name, x.check_in, x.check_out), x.memo]));
+    const pkM = new Map(pk.map((x) => [key(x.property_name, x.check_in, x.check_out), x.parking]));
 
     const out = [];
     for (const r of resv) {
@@ -72,6 +74,7 @@ export async function GET() {
           res_code: isSeg ? null : r.res_code, res_url: r.res_url,
           info_submitted: ciM.get(k) ?? false,
           ready: rdM.get(k) ?? false,
+          parking: pkM.get(k) ?? false,
           memo: mmM.get(k) ?? "",
           adults: adults,
           children: children,

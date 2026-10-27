@@ -91,6 +91,15 @@ create table if not exists ready_status (
   primary key (property_name, check_in, check_out)
 );
 
+-- 駐車場マーク（同一建物で駐車場が限られる時、どの予約が使うか印をつける）。予約単位のオン/オフ。同期で消えない。
+create table if not exists parking_status (
+  property_name text not null,
+  check_in  date not null,
+  check_out date not null,
+  parking   boolean not null default false,
+  primary key (property_name, check_in, check_out)
+);
+
 -- 予約バーのメモ（アーリーチェックイン等）。予約単位。
 create table if not exists memo_status (
   property_name text not null,

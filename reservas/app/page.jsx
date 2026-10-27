@@ -69,6 +69,7 @@ const mapRows = (rows) => rows.map((x, i) => ({
   ...x, id: i,
   info_submitted: !!x.info_submitted,
   ready: !!x.ready,
+  parking: !!x.parking,
   memo: x.memo || "",
   adults: x.adults ?? null,
   children: x.children ?? null,
@@ -280,6 +281,14 @@ export default function Dashboard() {
     setSel(null);
     await fetch("/api/ready", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, ready: !r.ready }) });
+    load();
+  }
+  async function toggleParking(r) {
+    if (!canEdit) return;
+    setData((d) => d.map((x) => (x.id === r.id ? { ...x, parking: !x.parking } : x)));
+    setSel(null);
+    await fetch("/api/parking", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, parking: !r.parking }) });
     load();
   }
   async function loadVendors() {
@@ -681,7 +690,7 @@ export default function Dashboard() {
         </main>
       </div>
 
-      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onReady={toggleReady} onMemo={saveMemo} onSplit={doSplit} onUnsplit={unSplit} onAckChange={ackChange} onGuests={saveGuests} canEdit={canEdit} isAdmin={isAdmin} isViewer={isCleaning} />}
+      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onReady={toggleReady} onParking={toggleParking} onMemo={saveMemo} onSplit={doSplit} onUnsplit={unSplit} onAckChange={ackChange} onGuests={saveGuests} canEdit={canEdit} isAdmin={isAdmin} isViewer={isCleaning} />}
       {cleanSel && <CleaningModal sel={cleanSel} onChange={setCleanSel} onSave={saveCleaning} onDelete={deleteCleaning} onClose={() => setCleanSel(null)} vendors={vendors} onAddVendor={addVendor} canAddVendor={canEdit} canManage={canEdit} isLead={isLead} />}
       {vendorModal && <VendorModal vendors={vendors} onAdd={addVendor} onUpdate={updateVendor} onReorder={reorderVendors} onClose={() => setVendorModal(false)} />}
       {billerModal && <VendorModal vendors={billers} onAdd={addBiller} onUpdate={updateBiller} onReorder={reorderBillers} onClose={() => setBillerModal(false)} title="請求先マスタ" placeholder="新しい請求先名" />}
@@ -795,6 +804,7 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
                           title={`${p.name} ${fmtMD(r.ci)}〜${fmtMD(r.co)}（${r.nights}泊）`}>
                           {!block && !r.info_submitted && <span className="dotm" style={{ background: "#FFD400" }} title="事前情報 未提出" />}
                           {!block && !r.ready && <span className="dotm" style={{ background: "#06B6D4" }} title="清掃後チェック 未確認" />}
+                          {!block && r.parking ? <span className="memo-ico" title="駐車場 利用">🚗</span> : null}
                           {!block && r.memo && !showMemo && <span className="memo-ico" title={r.memo}>📝</span>}
                           {!block && (r.adults || r.children) ? <span className="memo-ico" title={`大人${r.adults || 0}・子ども${r.children || 0}`}>👥{(r.adults || 0) + (r.children || 0)}</span> : null}
                           {!block && r.changed ? <span className="memo-ico" title="予約に変更あり・要確認">⚠️</span> : null}
@@ -928,7 +938,7 @@ function MonthGrid({ y, m, resv, cleans, onSel, onAddCleaning, onEditCleaning, p
         out.push({ r, block,
           left: (leftCol / 7) * 100, width: ((rightCol - leftCol) / 7) * 100,
           bg, ink, roundL: ciInWeek, roundR: coInWeek,
-          label: block ? "ブロック" : (ciInWeek ? (r.guest_name || `${r.nights}泊`) + guests : "") });
+          label: block ? "ブロック" : (ciInWeek ? (r.parking ? "🚗 " : "") + (r.guest_name || `${r.nights}泊`) + guests : (r.parking ? "🚗" : "")) });
       } else if (coInWeek) {
         // この週には宿泊日が無いが、チェックアウト日だけある（前月・前週からの連続）
         // → チェックアウト日に少しだけ帯を出す（月またぎでも途切れないように）
@@ -976,7 +986,7 @@ function MonthGrid({ y, m, resv, cleans, onSel, onAddCleaning, onEditCleaning, p
   );
 }
 
-function Detail({ r, onClose, onToggle, onCheckin, onReady, onMemo, onSplit, onUnsplit, onAckChange, onGuests, canEdit, isAdmin, isViewer }) {
+function Detail({ r, onClose, onToggle, onCheckin, onReady, onParking, onMemo, onSplit, onUnsplit, onAckChange, onGuests, canEdit, isAdmin, isViewer }) {
   const pf = PLATFORMS[r.platform] || PLATFORMS.airbnb;
   const block = r.type === "block";
   const [splitDate, setSplitDate] = useState("");
@@ -1025,6 +1035,11 @@ function Detail({ r, onClose, onToggle, onCheckin, onReady, onMemo, onSplit, onU
             <div className={"m-info " + (r.ready ? "done" : "todo")}>
               <span>清掃後チェック（お迎え準備）：<b>{r.ready ? "確認済み" : "未確認"}</b></span>
               {canEdit && <button onClick={() => onReady(r)}>{r.ready ? "未確認に戻す" : "確認済みにする"}</button>}
+            </div>
+
+            <div className={"m-info " + (r.parking ? "done" : "todo")}>
+              <span>🚗 駐車場：<b>{r.parking ? "この予約が使用" : "未指定"}</b></span>
+              {canEdit && <button onClick={() => onParking(r)}>{r.parking ? "使用を外す" : "この予約を使用にする"}</button>}
             </div>
 
             <div className="m-split">
