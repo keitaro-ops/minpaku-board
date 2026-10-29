@@ -34,7 +34,7 @@ export async function POST(req) {
       primary key (property_name, check_in, check_out)
     )`;
   // ボードからの操作は「手動」として記録（自動付与との区別。食い違い検知に使う）
-  await sql`alter table parking_status add column if not exists source text`.catch(() => {});
+  await ensureParkingTables(sql);
   await sql`
     insert into parking_status (property_name, check_in, check_out, parking, source)
     values (${b.property_name}, ${b.check_in}, ${b.check_out}, ${!!b.parking}, 'manual')

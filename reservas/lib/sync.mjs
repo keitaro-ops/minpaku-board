@@ -1,5 +1,6 @@
 import { db } from "./db.mjs";
 import { parseICS, mergeFeeds } from "./ical.mjs";
+import { ensureColumn, clearStuckParkingDDL } from "./parking.mjs";
 
 // 案A: チェックインが過ぎた予約（check_in < 今日 = 滞在開始済み）はDBに確定保存して残す。
 // これから始まる予約（check_in >= 今日）だけ iCal 最新で入れ替える。
@@ -97,7 +98,8 @@ export async function runSync() {
   let parkingRemoved = 0;
   if (okProps.length) {
     try {
-      await sql`alter table parking_status add column if not exists orphan_since timestamptz`;
+      await clearStuckParkingDDL(sql);
+      await ensureColumn(sql, "parking_status", "orphan_since", "timestamptz");
       const live = () => sql`exists (select 1 from reservations r where r.property_name = p.property_name
                          and r.check_in = p.check_in and r.check_out = p.check_out and r.type = 'booking')`;
       // 予約が戻ってきたものは猶予をリセット
