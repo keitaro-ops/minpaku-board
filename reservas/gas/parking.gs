@@ -30,6 +30,8 @@ function runParking() {
   const rooms = post_({ kind: "parking_rooms" }).rooms || [];   // 対象の部屋ID（W14の2部屋）
   if (!rooms.length) { console.error("parking_rooms が取得できません"); return; }
 
+  // 届いた順（古い順）に処理する。駐車場は先着順なので、後から来た希望の方に「被り」を出すため。
+  const queue = [];
   GmailApp.search(PK.QUERY, 0, 100).forEach((thread) => {
     thread.getMessages().forEach((msg) => {
       const id = msg.getId();
@@ -37,9 +39,13 @@ function runParking() {
       const parsed = parseParkingMessage_(msg.getPlainBody());
       done[id] = now;
       if (!parsed || rooms.indexOf(parsed.room_id) < 0 || !parsed.text) return;
-      const code = sendMessage_("pk:" + id, msg, parsed, false);
-      if (code !== 200) delete done[id];   // 失敗時は次回再試行
+      queue.push({ id: id, msg: msg, parsed: parsed });
     });
+  });
+  queue.sort((a, b) => a.msg.getDate() - b.msg.getDate());
+  queue.forEach((q) => {
+    const code = sendMessage_("pk:" + q.id, q.msg, q.parsed, false);
+    if (code !== 200) delete done[q.id];   // 失敗時は次回再試行
   });
 
   // 保存済みの希望を予約に反映 → 未送信の通知をメールで送り、送信済みにする

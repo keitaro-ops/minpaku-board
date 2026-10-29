@@ -26,7 +26,9 @@ export function contactOf(msgs) {
   if (!msgs || !msgs.length) return { status: "none", text: "", manual: false };
   const decisive = [...msgs].reverse().find((m) => m.intent === "want" || m.intent === "no_car");
   const m = decisive || msgs[msgs.length - 1];
-  return { status: decisive ? decisive.intent : "question", text: m.text || "", manual: String(m.message_id || "").startsWith("manual:") };
+  const thread = [...msgs].reverse().find((x) => x.thread_url);
+  return { status: decisive ? decisive.intent : "question", text: m.text || "", manual: String(m.message_id || "").startsWith("manual:"),
+           thread_url: thread ? thread.thread_url : "" };
 }
 
 // 列の追加は「列が無い時だけ」行う。ALTER TABLE は列が既にあってもテーブルの排他ロックを取りに行き、

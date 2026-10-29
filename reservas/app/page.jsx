@@ -1075,7 +1075,7 @@ function Detail({ r, onClose, onToggle, onCheckin, onReady, onParking, onParking
                 <span>
                   🅿 ゲストの連絡：<b>{PCONTACT[r.parking_contact.status].label}</b>
                   {r.parking_contact.manual ? "（手動設定）" : ""}
-                  {r.parking_contact.text && !r.parking_contact.manual ? <span className="pc-quote">「{r.parking_contact.text.replace(/\s+/g, " ").slice(0, 80)}」</span> : null}
+                  {r.parking_contact.text ? <span className="pc-quote">「{r.parking_contact.text.replace(/\s+/g, " ").slice(0, 80)}」</span> : null}
                 </span>
                 {canEdit && (
                   <span className="pc-btns">

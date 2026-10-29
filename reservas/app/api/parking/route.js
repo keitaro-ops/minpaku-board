@@ -18,8 +18,9 @@ export async function POST(req) {
       await sql`delete from parking_messages where message_id = ${mid}`.catch(() => {});
     } else if (b.contact === "want" || b.contact === "no_car") {
       await sql`insert into parking_messages (message_id, property_name, check_in, check_out, intent, text, sent_at)
-                values (${mid}, ${b.property_name}, ${b.check_in}, ${b.check_out}, ${b.contact}, '（ボードで手動設定）', now())
-                on conflict (message_id) do update set intent = excluded.intent, sent_at = now()`;
+                values (${mid}, ${b.property_name}, ${b.check_in}, ${b.check_out}, ${b.contact},
+                        ${b.note ? ("（Airbnbで確認）" + String(b.note).slice(0, 300)) : "（ボードで手動設定）"}, now())
+                on conflict (message_id) do update set intent = excluded.intent, text = excluded.text, sent_at = now()`;
     } else return NextResponse.json({ error: "contact が不正" }, { status: 400 });
     await sql`delete from parking_alerts where property_name = ${b.property_name} and check_in = ${b.check_in} and check_out = ${b.check_out}`.catch(() => {});
     return NextResponse.json({ ok: true });

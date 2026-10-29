@@ -34,7 +34,7 @@ export async function GET() {
       () => sql`select res_code from change_flags where acknowledged = false`,
       () => sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, adults, children from guest_manual`,
       () => sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, parking from parking_status`.catch(() => []),
-      () => sql`select message_id, property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, intent, text
+      () => sql`select message_id, property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, intent, text, thread_url
           from parking_messages order by sent_at`.catch(() => []),
     ]);
 
