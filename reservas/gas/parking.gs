@@ -19,7 +19,8 @@ const PK = {
   ENDPOINT: "https://minpaku-board.vercel.app/api/inbound",
   NOTIFY_TO: "minpaku@fly-arts.com",
   QUERY: "from:(express@airbnb.com OR automated@airbnb.com) newer_than:2d",
-  BACKFILL_QUERY: "from:(express@airbnb.com OR automated@airbnb.com) newer_than:400d",
+  // 過去分の取り込み対象。W14のリスティング名に含まれる語で絞る（全Airbnbメールだと数千件で時間がかかるため）
+  BACKFILL_QUERY: "from:express@airbnb.com newer_than:400d (subject:和モダン OR subject:ヴィンテージ)",
 };
 
 function runParking() {
@@ -92,7 +93,8 @@ function sendMessage_(messageId, msg, parsed, backfill) {
  */
 function runParkingBackfill() {
   const props = PropertiesService.getScriptProperties();
-  const state = JSON.parse(props.getProperty("pkb_state") || '{"start":0}');
+  let state = JSON.parse(props.getProperty("pkb_state") || '{"start":0}');
+  if (state.q !== PK.BACKFILL_QUERY) state = { start: 0, q: PK.BACKFILL_QUERY };   // 対象を変えたら最初から
   const rooms = post_({ kind: "parking_rooms" }).rooms || [];
   if (!rooms.length) { console.error("parking_rooms が取得できません"); return; }
   const t0 = Date.now();
