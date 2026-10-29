@@ -99,7 +99,12 @@ function runParkingBackfill() {
   let sent = 0;
   while (Date.now() - t0 < 4.5 * 60 * 1000) {
     const threads = GmailApp.search(PK.BACKFILL_QUERY, state.start, 50);
-    if (!threads.length) { props.deleteProperty("pkb_state"); console.log("完了: 今回 " + sent + " 件送信"); return; }
+    if (!threads.length) {
+      props.deleteProperty("pkb_state");
+      post_({ kind: "parking_backfill_done" });   // これ以降、ボードは「発言なし」も判定に使う
+      console.log("完了: 今回 " + sent + " 件送信");
+      return;
+    }
     threads.forEach((thread) => thread.getMessages().forEach((msg) => {
       const parsed = parseParkingMessage_(msg.getPlainBody());
       if (!parsed || rooms.indexOf(parsed.room_id) < 0 || !parsed.text) return;

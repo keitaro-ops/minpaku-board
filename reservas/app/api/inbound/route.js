@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../lib/db.mjs";
-import { PARKING_BUILDINGS, buildingOf, ensureParkingTables } from "../../../lib/parking.mjs";
+import { PARKING_BUILDINGS, buildingOf, ensureParkingTables, guestOnly } from "../../../lib/parking.mjs";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -34,6 +34,10 @@ export async function POST(req) {
     result = await handleParkingRequest(sql, b);
   } else if (b.kind === "parking_rooms") {
     return NextResponse.json(await parkingRooms(sql));
+  } else if (b.kind === "parking_backfill_done") {
+    await ensureParkingTables(sql);
+    await sql`insert into parking_meta (key, value) values ('backfill_done', now()::text) on conflict (key) do update set value = excluded.value`;
+    return NextResponse.json({ ok: true });
   } else if (b.kind === "parking_poll") {
     return NextResponse.json(await parkingPoll(sql));
   } else if (b.kind === "parking_ack") {
@@ -182,7 +186,9 @@ async function handleParkingRequest(sql, b) {
   const building = buildingOf(property);
   if (!property || !building) return { ok: true, status: "not_target", property: property || null };
 
-  const text = (b.text || "").slice(0, 1500), thread_url = (b.thread_url || "").slice(0, 300);
+  // ゲスト（予約者）の発言だけを見る。補助ホストの案内文（「駐車場のご利用の有無を…」等）は判定に使わない。
+  const text = guestOnly(b.text || "").slice(0, 1500), thread_url = (b.thread_url || "").slice(0, 300);
+  if (!text.trim()) return { ok: true, status: "host_only", property };
   const ctx = { building, property, ci, co, text, thread_url };
   const intent = intentOf(text);
   // 駐車場と関係ない発言（「地下鉄で何回乗り換え？」等）は記録しない
@@ -247,6 +253,7 @@ async function parkingPoll(sql) {
     await sql`update parking_requests set status = ${status}, resolved_at = now() where id = ${r.id}`;
     applied.push({ id: r.id, status });
   }
+  await reclassifyMessages(sql);
   const mismatches = await reconcile(sql, today);
   const notices = await sql`select id, subject, body from parking_notices where sent_at is null order by id limit 50`;
   return { ok: true, applied, mismatches, notices };
@@ -272,6 +279,8 @@ async function reconcile(sql, today) {
     from parking_status p
     join reservations r on r.property_name = p.property_name and r.check_in = p.check_in and r.check_out = p.check_out and r.type = 'booking'
     where p.check_out > ${today}`;
+  // 過去のメッセージの取り込みが終わるまでは「発言なし」と判断しない（取り込み前の誤報防止）
+  const backfillDone = !!(await sql`select 1 from parking_meta where key = 'backfill_done'`)[0];
   const found = [];
   for (const p of rows) {
     const building = keys.find((k) => p.property_name.startsWith(k + " "));
@@ -289,7 +298,7 @@ async function reconcile(sql, today) {
       lines = [`${head} に🚗が付いていますが、ゲストは車を使わない旨を書いています。`,
                p.source === "manual" ? "（手動で付けた🚗です）" : "（自動で付けた🚗です）", ...quote(decisive),
                "", "🚗を外すか、ゲストに確認してください。"];
-    } else if (p.parking && p.source === "manual" && msgs.length === 0) {
+    } else if (p.parking && p.source === "manual" && msgs.length === 0 && backfillDone) {
       const others = await sql`
         select property_name, to_char(check_in,'YYYY-MM-DD') as ci, to_char(check_out,'YYYY-MM-DD') as co
         from reservations where type = 'booking' and property_name like ${building + " %"} and property_name <> ${p.property_name}
@@ -314,4 +323,16 @@ async function reconcile(sql, today) {
     if (ins.length) { await notice(sql, subject, lines); found.push({ property: p.property_name, ci: p.ci, reason }); }
   }
   return found;
+}
+
+// 保存済みの発言を、最新の判定ルール（ゲストの発言のみ・意図判定）で判定し直す。毎回の poll で実行（件数は少ない）。
+async function reclassifyMessages(sql) {
+  const rows = await sql`select message_id, text, intent from parking_messages where message_id not like 'manual:%'`;
+  for (const r of rows) {
+    const g = guestOnly(r.text || "");
+    const intent = g.trim() ? intentOf(g) : null;
+    const related = intent && (intent !== "question" || /駐車|パーキング|parking|car ?park/i.test(g));
+    if (!related) await sql`delete from parking_messages where message_id = ${r.message_id}`;
+    else if (intent !== r.intent || g !== r.text) await sql`update parking_messages set intent = ${intent}, text = ${g.slice(0, 1500)} where message_id = ${r.message_id}`;
+  }
 }

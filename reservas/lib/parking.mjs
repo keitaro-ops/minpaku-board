@@ -3,6 +3,22 @@ export const PARKING_BUILDINGS = { W14: 1 }; // 建物名: 駐車可能台数
 export const buildingOf = (name) =>
   Object.keys(PARKING_BUILDINGS).find((k) => (name || "").startsWith(k + " ") || name === k);
 
+// メッセージ通知の本文から「ゲスト（予約者）の発言」だけを取り出す。
+// 本文は「名前 / 役割 / 発言」の繰り返し。補助ホスト・ホストの発言（駐車場の案内の定型文など）は除外する。
+const ROLE = /^(予約者|ゲスト|補助ホスト|共同ホスト|ホスト|Airbnb.*|Guest|Booker|Co-?host|Host)$/i;
+const GUEST_ROLE = /^(予約者|ゲスト|Guest|Booker)$/i;
+export function guestOnly(text) {
+  const lines = String(text || "").split("\n").map((l) => l.trim()).filter(Boolean);
+  if (!lines.some((l) => ROLE.test(l))) return String(text || "");   // 役割表示が無い形式はそのまま
+  const out = [];
+  let role = null;
+  for (let i = 0; i < lines.length; i++) {
+    if (i + 1 < lines.length && ROLE.test(lines[i + 1]) && !ROLE.test(lines[i])) { role = lines[i + 1]; i++; continue; }
+    if (role && GUEST_ROLE.test(role)) out.push(lines[i]);
+  }
+  return out.join("\n");
+}
+
 // 予約ごとのゲストの駐車場連絡の状態
 //   want: 必要 / no_car: 不要 / question: 質問のみ / none: 連絡なし
 // msgs は sent_at 昇順。最新の「はっきりした発言（必要/不要）」を優先する。
@@ -53,5 +69,6 @@ export async function ensureParkingTables(sql) {
   await sql`create table if not exists parking_notices (
     id bigserial primary key, subject text not null, body text not null,
     created_at timestamptz not null default now(), sent_at timestamptz)`;
+  await sql`create table if not exists parking_meta (key text primary key, value text)`;
   _ensured = true;
 }
