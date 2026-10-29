@@ -8,7 +8,7 @@ async function tokenFor(role) {
 
 const OPEN = ["/login", "/api/login", "/api/cron", "/api/inbound"];
 // 非GETで admin のみ許可するパス
-const ADMIN_ONLY = ["/api/settings", "/api/feeds", "/api/rename", "/api/webhooks"];
+const ADMIN_ONLY = ["/api/settings", "/api/feeds", "/api/rename", "/api/webhooks", "/api/diag"];
 
 export async function middleware(req) {
   const { pathname } = req.nextUrl;
