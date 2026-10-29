@@ -5,8 +5,12 @@ export function db() {
   if (!_sql) {
     _sql = postgres(process.env.DATABASE_URL, {
       ssl: "require",
-      max: 5,
-      idle_timeout: 20,
+      // 接続は1本に絞る（並列クエリは1本の接続上でパイプライン実行される）。
+      // Vercel のサーバーレスでは凍結されたインスタンスが接続を握ったまま残り、プーラーの枠が
+      // 埋まると新しい接続が開けず並列クエリが止まる（2026-10-30 予約一覧タイムアウトの原因）。
+      max: 1,
+      idle_timeout: 10,
+      max_lifetime: 60 * 5,
       connect_timeout: 10,
       prepare: false,
     });
