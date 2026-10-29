@@ -103,6 +103,15 @@ export default function Dashboard() {
   const [view, setView] = useState("timeline");
   const [calProp, setCalProp] = useState("");
   const [calMonth, setCalMonth] = useState(() => startOfMonth(new Date()));
+  // 開いていたビュー（タイムライン/カレンダー/リスト）と選択物件を端末ごとに記憶・復元
+  useEffect(() => {
+    const v = LS.get("view", null);
+    if (v === "timeline" || v === "calendar" || v === "list") setView(v);
+    const cp = LS.get("calProp", null);
+    if (cp) setCalProp(cp);
+  }, []);
+  useEffect(() => { LS.set("view", view); }, [view]);
+  useEffect(() => { if (calProp) LS.set("calProp", calProp); }, [calProp]);
   const [plat, setPlat] = useState({ airbnb: true, booking: true });
   const [showBlocks, setShowBlocks] = useState(true);
   const [needInfoOnly, setNeedInfoOnly] = useState(false);
