@@ -9,12 +9,11 @@
  *   - 問い合わせ段階（予約前）の希望 → 保存し、予約がボードに入った時点で🚗（または被り通知）
  * 通知はボード側の通知キューに溜まり、このスクリプトが NOTIFY_TO にメールで送る。
  *
- * 設置: 既存の runInbound と同じ Apps Script プロジェクトにこのファイルを追加し、
- *       setupParkingTrigger を1回だけ実行する。
+ * 設置: 既存の runInbound と同じ Apps Script プロジェクト（minpaku-inbound）に追加し、
+ *       setupParkingTrigger を1回だけ実行する。INBOUND_SECRET はコード.gs の定数を使う。
  */
 const PK = {
   ENDPOINT: "https://minpaku-board.vercel.app/api/inbound",
-  SECRET: "ここに INBOUND_SECRET",           // 既存の runInbound と同じ値
   NOTIFY_TO: "minpaku@fly-arts.com",
   QUERY: "from:(express@airbnb.com OR automated@airbnb.com) newer_than:2d",
   // ゲストのメッセージ（日本語の自動翻訳を含む）にこれが含まれたら「駐車場希望」とみなす
@@ -38,7 +37,7 @@ function runParking() {
         method: "post",
         contentType: "application/json",
         muteHttpExceptions: true,
-        payload: JSON.stringify(Object.assign({ secret: PK.SECRET, kind: "parking_request", message_id: "pk:" + id }, parsed)),
+        payload: JSON.stringify(Object.assign({ secret: INBOUND_SECRET, kind: "parking_request", message_id: "pk:" + id }, parsed)),
       });
       let r = {};
       try { r = JSON.parse(res.getContentText()); } catch (e) {}
@@ -85,7 +84,7 @@ function parseParkingMessage_(body) {
 function post_(obj) {
   const res = UrlFetchApp.fetch(PK.ENDPOINT, {
     method: "post", contentType: "application/json", muteHttpExceptions: true,
-    payload: JSON.stringify(Object.assign({ secret: PK.SECRET }, obj)),
+    payload: JSON.stringify(Object.assign({ secret: INBOUND_SECRET }, obj)),
   });
   try { return JSON.parse(res.getContentText()); } catch (e) { return {}; }
 }
