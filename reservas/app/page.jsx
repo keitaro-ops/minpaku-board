@@ -64,6 +64,14 @@ function jpHolidaySet(year) {
 const isJpHoliday = (isoStr) => !!jpHolidaySet(Number(isoStr.slice(0, 4)))[isoStr];
 
 const uid = () => Math.random().toString(36).slice(2, 9);
+// 駐車場共有建物（W14等）の予約ごとのゲスト連絡。🚗付き＋必要 は通常状態なので表示を省く。
+const PCONTACT = {
+  want:     { tag: "🅿要", label: "必要（連絡あり）",      cls: "pc-want" },
+  no_car:   { tag: "🅿不", label: "不要（連絡あり）",      cls: "pc-no" },
+  question: { tag: "🅿？", label: "質問のみ（返信を確認）", cls: "pc-q" },
+  none:     { tag: "🅿未", label: "連絡なし",              cls: "pc-none" },
+};
+const pcShow = (r) => r.parking_contact && !(r.parking && r.parking_contact.status === "want") ? PCONTACT[r.parking_contact.status] : null;
 const readRole = () => { try { const m = document.cookie.match(/(?:^|; )rb_role=([^;]+)/); return m ? decodeURIComponent(m[1]) : "admin"; } catch { return "admin"; } };
 const mapRows = (rows) => rows.map((x, i) => ({
   ...x, id: i,
@@ -298,6 +306,13 @@ export default function Dashboard() {
     setSel(null);
     await fetch("/api/parking", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, parking: !r.parking }) });
+    load();
+  }
+  async function setParkingContact(r, contact) {
+    if (!canEdit) return;
+    setSel(null);
+    await fetch("/api/parking", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, contact }) });
     load();
   }
   async function loadVendors() {
@@ -630,6 +645,10 @@ export default function Dashboard() {
             <div className="lg-row"><span className="dotm" style={{ background: "#FFD400" }} />事前情報 未提出</div>
             <div className="lg-row"><span className="dotm" style={{ background: "#06B6D4" }} />清掃後チェック 未確認</div>
             <div className="lg-row"><span className="clean-legend" style={{ background: "#0F766E" }} />清掃予定（自社）</div>
+            <div className="lg-row"><span className="pc-legend">🅿要</span>駐車場 必要・🚗未付与</div>
+            <div className="lg-row"><span className="pc-legend">🅿不</span>駐車場 不要の連絡あり</div>
+            <div className="lg-row"><span className="pc-legend">🅿？</span>駐車場 質問のみ</div>
+            <div className="lg-row"><span className="pc-legend">🅿未</span>駐車場 連絡なし</div>
             <div className="lg-row"><span className="clean-legend" style={{ background: "#7C3AED" }} />清掃予定（外注）</div>
           </div>
           <div className="side-actions">
@@ -699,7 +718,7 @@ export default function Dashboard() {
         </main>
       </div>
 
-      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onReady={toggleReady} onParking={toggleParking} onMemo={saveMemo} onSplit={doSplit} onUnsplit={unSplit} onAckChange={ackChange} onGuests={saveGuests} canEdit={canEdit} isAdmin={isAdmin} isViewer={isCleaning} />}
+      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onReady={toggleReady} onParking={toggleParking} onParkingContact={setParkingContact} onMemo={saveMemo} onSplit={doSplit} onUnsplit={unSplit} onAckChange={ackChange} onGuests={saveGuests} canEdit={canEdit} isAdmin={isAdmin} isViewer={isCleaning} />}
       {cleanSel && <CleaningModal sel={cleanSel} onChange={setCleanSel} onSave={saveCleaning} onDelete={deleteCleaning} onClose={() => setCleanSel(null)} vendors={vendors} onAddVendor={addVendor} canAddVendor={canEdit} canManage={canEdit} isLead={isLead} />}
       {vendorModal && <VendorModal vendors={vendors} onAdd={addVendor} onUpdate={updateVendor} onReorder={reorderVendors} onClose={() => setVendorModal(false)} />}
       {billerModal && <VendorModal vendors={billers} onAdd={addBiller} onUpdate={updateBiller} onReorder={reorderBillers} onClose={() => setBillerModal(false)} title="請求先マスタ" placeholder="新しい請求先名" />}
@@ -814,6 +833,7 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
                           {!block && !r.info_submitted && <span className="dotm" style={{ background: "#FFD400" }} title="事前情報 未提出" />}
                           {!block && !r.ready && <span className="dotm" style={{ background: "#06B6D4" }} title="清掃後チェック 未確認" />}
                           {!block && r.parking ? <span className="memo-ico" title="駐車場 利用">🚗</span> : null}
+                          {!block && pcShow(r) ? <span className={"memo-ico pc " + pcShow(r).cls} title={"駐車場の連絡：" + pcShow(r).label}>{pcShow(r).tag}</span> : null}
                           {!block && r.memo && !showMemo && <span className="memo-ico" title={r.memo}>📝</span>}
                           {!block && (r.adults || r.children) ? <span className="memo-ico" title={`大人${r.adults || 0}・子ども${r.children || 0}`}>👥{(r.adults || 0) + (r.children || 0)}</span> : null}
                           {!block && r.changed ? <span className="memo-ico" title="予約に変更あり・要確認">⚠️</span> : null}
@@ -947,7 +967,7 @@ function MonthGrid({ y, m, resv, cleans, onSel, onAddCleaning, onEditCleaning, p
         out.push({ r, block,
           left: (leftCol / 7) * 100, width: ((rightCol - leftCol) / 7) * 100,
           bg, ink, roundL: ciInWeek, roundR: coInWeek,
-          label: block ? "ブロック" : (ciInWeek ? (r.parking ? "🚗 " : "") + (r.guest_name || `${r.nights}泊`) + guests : (r.parking ? "🚗" : "")) });
+          label: block ? "ブロック" : (ciInWeek ? (r.parking ? "🚗 " : "") + (pcShow(r) ? pcShow(r).tag + " " : "") + (r.guest_name || `${r.nights}泊`) + guests : (r.parking ? "🚗" : "")) });
       } else if (coInWeek) {
         // この週には宿泊日が無いが、チェックアウト日だけある（前月・前週からの連続）
         // → チェックアウト日に少しだけ帯を出す（月またぎでも途切れないように）
@@ -995,7 +1015,7 @@ function MonthGrid({ y, m, resv, cleans, onSel, onAddCleaning, onEditCleaning, p
   );
 }
 
-function Detail({ r, onClose, onToggle, onCheckin, onReady, onParking, onMemo, onSplit, onUnsplit, onAckChange, onGuests, canEdit, isAdmin, isViewer }) {
+function Detail({ r, onClose, onToggle, onCheckin, onReady, onParking, onParkingContact, onMemo, onSplit, onUnsplit, onAckChange, onGuests, canEdit, isAdmin, isViewer }) {
   const pf = PLATFORMS[r.platform] || PLATFORMS.airbnb;
   const block = r.type === "block";
   const [splitDate, setSplitDate] = useState("");
@@ -1050,6 +1070,22 @@ function Detail({ r, onClose, onToggle, onCheckin, onReady, onParking, onMemo, o
               <span>🚗 駐車場：<b>{r.parking ? "この予約が使用" : "未指定"}</b></span>
               {canEdit && <button onClick={() => onParking(r)}>{r.parking ? "使用を外す" : "この予約を使用にする"}</button>}
             </div>
+            {r.parking_contact && (
+              <div className={"m-info " + (r.parking_contact.status === "none" || r.parking_contact.status === "question" ? "todo" : "done")}>
+                <span>
+                  🅿 ゲストの連絡：<b>{PCONTACT[r.parking_contact.status].label}</b>
+                  {r.parking_contact.manual ? "（手動設定）" : ""}
+                  {r.parking_contact.text && !r.parking_contact.manual ? <span className="pc-quote">「{r.parking_contact.text.replace(/\s+/g, " ").slice(0, 80)}」</span> : null}
+                </span>
+                {canEdit && (
+                  <span className="pc-btns">
+                    {r.parking_contact.status !== "want" && <button onClick={() => onParkingContact(r, "want")}>必要にする</button>}
+                    {r.parking_contact.status !== "no_car" && <button onClick={() => onParkingContact(r, "no_car")}>不要にする</button>}
+                    {r.parking_contact.manual && <button onClick={() => onParkingContact(r, "clear")}>手動設定を解除</button>}
+                  </span>
+                )}
+              </div>
+            )}
 
             <div className="m-split">
               <div className="m-clean-t">メモ（アーリーチェックイン等）</div>
@@ -1450,6 +1486,14 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .nights { flex:0 0 auto; }
 .nights2 { flex:0 0 auto; margin-right:4px; }
 .memo-ico { flex:0 0 auto; font-size:9px; margin-right:2px; }
+.pc { font-weight:700; border-radius:3px; padding:0 2px; background:rgba(255,255,255,.85); color:#1F2937; }
+.pc-want { background:#FEF3C7; color:#92400E; }
+.pc-q { background:#FFE4E6; color:#9F1239; }
+.pc-none { background:#F3F4F6; color:#6B7280; }
+.pc-no { background:#E0F2FE; color:#075985; }
+.pc-legend { font-size:10px; font-weight:700; min-width:26px; display:inline-block; }
+.pc-quote { display:block; font-size:11px; color:#6B7280; margin-top:2px; }
+.pc-btns { display:flex; gap:6px; flex-wrap:wrap; }
 .bar.block { background:repeating-linear-gradient(45deg,rgba(120,130,145,.10),rgba(120,130,145,.10) 4px,transparent 4px,transparent 8px)!important; border-style:dashed!important; }
 .tl-nowline { position:absolute; top:0; bottom:0; width:2px; background:#F59E0B; z-index:4; }
 .cell { }

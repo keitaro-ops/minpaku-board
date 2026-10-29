@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../lib/db.mjs";
+import { buildingOf, contactOf } from "../../../lib/parking.mjs";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -15,7 +16,7 @@ const key = (n, ci, co) => `${n}|${ci}|${co}`;
 export async function GET() {
   try {
     const sql = db();
-    const [resv, ov, ci, cl, sp, rd, mm, gc, cf, gman, pk] = await Promise.all([
+    const [resv, ov, ci, cl, sp, rd, mm, gc, cf, gman, pk, pmsg] = await Promise.all([
       sql`select property_name, area, platform, type,
                  to_char(check_in,'YYYY-MM-DD') as check_in,
                  to_char(check_out,'YYYY-MM-DD') as check_out,
@@ -30,6 +31,8 @@ export async function GET() {
       sql`select res_code from change_flags where acknowledged = false`,
       sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, adults, children from guest_manual`,
       sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, parking from parking_status`.catch(() => []),
+      sql`select message_id, property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, intent, text
+          from parking_messages order by sent_at`.catch(() => []),
     ]);
 
     const gcM = new Map(gc.map((x) => [x.res_code, x]));
@@ -43,6 +46,9 @@ export async function GET() {
     const rdM = new Map(rd.map((x) => [key(x.property_name, x.check_in, x.check_out), x.ready]));
     const mmM = new Map(mm.map((x) => [key(x.property_name, x.check_in, x.check_out), x.memo]));
     const pkM = new Map(pk.map((x) => [key(x.property_name, x.check_in, x.check_out), x.parking]));
+    // 駐車場共有建物の予約ごとのゲスト連絡（必要/不要/質問のみ/連絡なし）
+    const pmM = new Map();
+    for (const m of pmsg) { const k = key(m.property_name, m.check_in, m.check_out); if (!pmM.has(k)) pmM.set(k, []); pmM.get(k).push(m); }
 
     const out = [];
     for (const r of resv) {
@@ -75,6 +81,7 @@ export async function GET() {
           info_submitted: ciM.get(k) ?? false,
           ready: rdM.get(k) ?? false,
           parking: pkM.get(k) ?? false,
+          parking_contact: buildingOf(r.property_name) ? contactOf(pmM.get(key(r.property_name, r.check_in, r.check_out))) : null,
           memo: mmM.get(k) ?? "",
           adults: adults,
           children: children,
