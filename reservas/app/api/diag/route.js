@@ -21,26 +21,25 @@ export async function POST() {
   await T("cleaning_status", sql`select * from cleaning_status`);
   await T("memo_status", sql`select * from memo_status`);
   const race = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(() => r("TIMEOUT"), ms))]);
-  { const t = Date.now(); const all12 = race(Promise.all([
-      sql`select property_name, area, platform, type,
+  const QS = [
+    () => sql`select property_name, area, platform, type,
                  to_char(check_in,'YYYY-MM-DD') as check_in,
                  to_char(check_out,'YYYY-MM-DD') as check_out,
                  res_code, res_url from reservations`,
-      sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, type from overrides`,
-      sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, submitted from checkin_status`,
-      sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, status, memo from cleaning_status`,
-      sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, boundaries from splits`,
-      sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, ready from ready_status`,
-      sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, memo from memo_status`,
-      sql`select res_code, adults, children, guest_name from guest_counts`,
-      sql`select res_code from change_flags where acknowledged = false`,
-      sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, adults, children from guest_manual`,
-      sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, parking from parking_status`.catch(() => []),
-      sql`select message_id, property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, intent, text
-          from parking_messages order by sent_at`.catch(() => []),
-    ]).then((x) => x.map((y) => y.length).join(",")), 15000);
-    timed.promise_all_12 = `${await all12} ${Date.now() - t}ms`; }
-  { const t = Date.now(); const r = await race(reservationsGET(), 15000); timed.reservations_route = r === "TIMEOUT" ? "TIMEOUT" : `${Date.now() - t}ms status=${r.status}`; }
+    () => sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, type from overrides`,
+    () => sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, submitted from checkin_status`,
+    () => sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, status, memo from cleaning_status`,
+    () => sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, boundaries from splits`,
+    () => sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, ready from ready_status`,
+    () => sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, memo from memo_status`,
+    () => sql`select res_code, adults, children, guest_name from guest_counts`,
+    () => sql`select res_code from change_flags where acknowledged = false`,
+    () => sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, adults, children from guest_manual`,
+    () => sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, parking from parking_status`.catch(() => []),
+    () => sql`select message_id, property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, intent, text
+          from parking_messages order by sent_at`.catch(() => [])
+  ];
+  for (let i = 0; i < QS.length; i++) { const t = Date.now(); const r = await race(Promise.resolve(QS[i]()), 6000); timed["q" + i] = (r === "TIMEOUT" ? "TIMEOUT" : "ok rows=" + r.length) + " " + (Date.now() - t) + "ms"; }
   if (false) { const t = Date.now(); const r = await reservationsGET(); const body = await r.text(); timed.reservations_route = `${Date.now() - t}ms status=${r.status} bytes=${body.length}`; }
   return NextResponse.json({ act, locks, timed });
 }
