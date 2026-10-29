@@ -12,26 +12,29 @@ const nights = (a, b) => {
   return Number.isFinite(n) && n > 0 ? n : 1;
 };
 const key = (n, ci, co) => `${n}|${ci}|${co}`;
+// クエリは1本ずつ順番に実行する。Supabase の接続プーラー経由で1本の接続に複数クエリを
+// 重ねて流す（Promise.all）と応答が返らなくなり、予約一覧がタイムアウトしていた（2026-10-30）。
+const inSeries = async (fns) => { const out = []; for (const f of fns) out.push(await f()); return out; };
 
 export async function GET() {
   try {
     const sql = db();
-    const [resv, ov, ci, cl, sp, rd, mm, gc, cf, gman, pk, pmsg] = await Promise.all([
-      sql`select property_name, area, platform, type,
+    const [resv, ov, ci, cl, sp, rd, mm, gc, cf, gman, pk, pmsg] = await inSeries([
+      () => sql`select property_name, area, platform, type,
                  to_char(check_in,'YYYY-MM-DD') as check_in,
                  to_char(check_out,'YYYY-MM-DD') as check_out,
                  res_code, res_url from reservations`,
-      sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, type from overrides`,
-      sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, submitted from checkin_status`,
-      sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, status, memo from cleaning_status`,
-      sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, boundaries from splits`,
-      sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, ready from ready_status`,
-      sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, memo from memo_status`,
-      sql`select res_code, adults, children, guest_name from guest_counts`,
-      sql`select res_code from change_flags where acknowledged = false`,
-      sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, adults, children from guest_manual`,
-      sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, parking from parking_status`.catch(() => []),
-      sql`select message_id, property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, intent, text
+      () => sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, type from overrides`,
+      () => sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, submitted from checkin_status`,
+      () => sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, status, memo from cleaning_status`,
+      () => sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, boundaries from splits`,
+      () => sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, ready from ready_status`,
+      () => sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, memo from memo_status`,
+      () => sql`select res_code, adults, children, guest_name from guest_counts`,
+      () => sql`select res_code from change_flags where acknowledged = false`,
+      () => sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, adults, children from guest_manual`,
+      () => sql`select property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, parking from parking_status`.catch(() => []),
+      () => sql`select message_id, property_name, to_char(check_in,'YYYY-MM-DD') as check_in, to_char(check_out,'YYYY-MM-DD') as check_out, intent, text
           from parking_messages order by sent_at`.catch(() => []),
     ]);
 
