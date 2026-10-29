@@ -92,6 +92,27 @@ export async function runSync() {
     }
   });
 
+  // キャンセル等で予約が消えた🚗を外す。
+  // iCalの一時的な欠落で消さないよう、「予約が見えない状態が1時間以上続いた」ものだけ削除する。
+  let parkingRemoved = 0;
+  if (okProps.length) {
+    try {
+      await sql`alter table parking_status add column if not exists orphan_since timestamptz`;
+      const live = () => sql`exists (select 1 from reservations r where r.property_name = p.property_name
+                         and r.check_in = p.check_in and r.check_out = p.check_out and r.type = 'booking')`;
+      // 予約が戻ってきたものは猶予をリセット
+      await sql`update parking_status p set orphan_since = null where orphan_since is not null and ${live()}`;
+      // 新たに予約が見えなくなったもの（これから始まる予約のみ）に猶予開始を記録
+      await sql`update parking_status p set orphan_since = now()
+                where p.parking and p.orphan_since is null and p.check_in > ${today}::date
+                  and p.property_name in ${sql(okProps)} and not ${live()}`;
+      const del = await sql`delete from parking_status p
+                where p.orphan_since < now() - interval '1 hour'
+                  and p.property_name in ${sql(okProps)} and not ${live()}`;
+      parkingRemoved = del.count || 0;
+    } catch (e) { errors.push({ feed: "parking_cleanup", error: String(e.message || e) }); }
+  }
+
   // 同期ログ（異常な大量削除に後から気づけるよう記録）
   try {
     await sql`insert into sync_log (ran_at, deleted, inserted, feeds_ok, feeds_error)
@@ -99,5 +120,5 @@ export async function runSync() {
   } catch {}
 
   const [{ count }] = await sql`select count(*)::int as count from reservations`;
-  return { feeds: feedRows.length, reservations: count, updatedUpcoming: upcoming.length, errors };
+  return { feeds: feedRows.length, reservations: count, updatedUpcoming: upcoming.length, parkingRemoved, errors };
 }
