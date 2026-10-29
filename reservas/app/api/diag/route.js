@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../lib/db.mjs";
+import { GET as reservationsGET } from "../reservations/route.js";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 // 一時的な診断用（管理者のみ・POST）。DBの待ち状況と、予約一覧の各クエリの所要時間を返す。
@@ -19,5 +20,7 @@ export async function POST() {
   await T("guest_counts", sql`select res_code from guest_counts`);
   await T("cleaning_status", sql`select * from cleaning_status`);
   await T("memo_status", sql`select * from memo_status`);
+  { const t = Date.now(); const r = await reservationsGET(); const body = await r.text(); timed.reservations_route = `${Date.now() - t}ms status=${r.status} bytes=${body.length}`; }
+  { const t = Date.now(); const r = await reservationsGET(); await r.text(); timed.reservations_route_2nd = `${Date.now() - t}ms`; }
   return NextResponse.json({ act, locks, timed });
 }
