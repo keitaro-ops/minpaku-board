@@ -313,10 +313,11 @@ async function reconcile(sql, today) {
       if (others.length) {
         reason = "manual_on_nomsg";
         subject = `【駐車場 要確認】手動🚗・駐車場の発言なし　${head}`;
-        lines = [`${head} に手動で🚗が付いていますが、ゲストのメッセージに駐車場・車の話が見当たりません。`,
+        lines = [`${head} に手動で🚗が付いていますが、ゲストのメッセージ（メール通知）に駐車場・車の話が見当たりません。`,
                  "同じ日程に別の部屋の予約があり、駐車場の取り合いになり得ます。",
                  "", "■ 同じ日程の別予約", ...others.map((o) => `・${o.property_name}　${md(o.ci)}〜${md(o.co)}`),
-                 "", "メッセージ以外（電話等）で依頼を受けていれば問題ありません。"];
+                 "", "Airbnbのスレッドで、こちらからの返信も含めてやり取りを確認してください。",
+                 "ゲストの希望が確認できた場合は、ボードの予約詳細で「必要にする」を押すと、この通知の対象から外れます。"];
       }
     } else if (!p.parking && p.source === "manual" && decisive?.intent === "want") {
       reason = "manual_off_but_want";

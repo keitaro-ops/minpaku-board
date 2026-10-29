@@ -9,7 +9,7 @@ export async function POST(req) {
   if (!b.property_name || !b.check_in || !b.check_out)
     return NextResponse.json({ error: "必須項目が不足" }, { status: 400 });
   const sql = db();
-  // ゲスト連絡の手動設定（電話や短い返事など、メッセージから判別できない場合）
+  // ゲスト連絡の手動設定（「はい」等の短い返事や、こちらの返信で確定した場合など、ゲストの発言だけでは判別できない場合）
   //   contact: "want"(必要) | "no_car"(不要) | "clear"(手動設定を解除)
   if (b.contact) {
     await ensureParkingTables(sql);
