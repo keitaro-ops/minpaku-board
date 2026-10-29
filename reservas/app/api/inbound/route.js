@@ -36,7 +36,9 @@ export async function POST(req) {
     return NextResponse.json(await parkingRooms(sql));
   } else if (b.kind === "parking_backfill_done") {
     await ensureParkingTables(sql);
-    await sql`insert into parking_meta (key, value) values ('backfill_done', now()::text) on conflict (key) do update set value = excluded.value`;
+    // 取り込みが済んだ建物を記録（建物を追加したら、その建物は取り込みが済むまで「発言なし」判定をしない）
+    const done = JSON.stringify(Object.keys(PARKING_BUILDINGS));
+    await sql`insert into parking_meta (key, value) values ('backfill_done', ${done}) on conflict (key) do update set value = excluded.value`;
     return NextResponse.json({ ok: true });
   } else if (b.kind === "parking_poll") {
     return NextResponse.json(await parkingPoll(sql));
@@ -282,7 +284,10 @@ async function reconcile(sql, today) {
     join reservations r on r.property_name = p.property_name and r.check_in = p.check_in and r.check_out = p.check_out and r.type = 'booking'
     where p.check_out > ${today}`;
   // 過去のメッセージの取り込みが終わるまでは「発言なし」と判断しない（取り込み前の誤報防止）
-  const backfillDone = !!(await sql`select 1 from parking_meta where key = 'backfill_done'`)[0];
+  const [meta] = await sql`select value from parking_meta where key = 'backfill_done'`;
+  let backfilled = [];
+  try { backfilled = JSON.parse(meta?.value || "[]"); } catch { backfilled = meta ? ["W14"] : []; }   // 旧形式（日時）は W14 のみ完了
+  if (!Array.isArray(backfilled)) backfilled = ["W14"];
   const found = [];
   for (const p of rows) {
     const building = keys.find((k) => p.property_name.startsWith(k + " "));
@@ -300,7 +305,7 @@ async function reconcile(sql, today) {
       lines = [`${head} に🚗が付いていますが、ゲストは車を使わない旨を書いています。`,
                p.source === "manual" ? "（手動で付けた🚗です）" : "（自動で付けた🚗です）", ...quote(decisive),
                "", "🚗を外すか、ゲストに確認してください。"];
-    } else if (p.parking && p.source === "manual" && msgs.length === 0 && backfillDone) {
+    } else if (p.parking && p.source === "manual" && msgs.length === 0 && backfilled.includes(building)) {
       const others = await sql`
         select property_name, to_char(check_in,'YYYY-MM-DD') as ci, to_char(check_out,'YYYY-MM-DD') as co
         from reservations where type = 'booking' and property_name like ${building + " %"} and property_name <> ${p.property_name}

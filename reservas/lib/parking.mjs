@@ -1,5 +1,6 @@
 // 駐車場を共有する建物。物件名がこの接頭辞で始まる部屋どうしで共有する。
-export const PARKING_BUILDINGS = { W14: 1 }; // 建物名: 駐車可能台数
+// ボード上の物件名が「建物名 部屋番号」（例: "W14 101", "ノーザン 403"）の形であること。
+export const PARKING_BUILDINGS = { W14: 1, "ノーザン": 1 }; // 建物名: 駐車可能台数
 export const buildingOf = (name) =>
   Object.keys(PARKING_BUILDINGS).find((k) => (name || "").startsWith(k + " ") || name === k);
 

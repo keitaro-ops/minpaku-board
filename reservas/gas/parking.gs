@@ -20,7 +20,8 @@ const PK = {
   NOTIFY_TO: "minpaku@fly-arts.com",
   QUERY: "from:(express@airbnb.com OR automated@airbnb.com) newer_than:2d",
   // 過去分の取り込み対象。W14のリスティング名に含まれる語で絞る（全Airbnbメールだと数千件で時間がかかるため）
-  BACKFILL_QUERY: "from:express@airbnb.com newer_than:400d (subject:和モダン OR subject:ヴィンテージ)",
+  // W14（和モダン／ヴィンテージ）、ノーザン（中央卸売市場）
+  BACKFILL_QUERY: "from:express@airbnb.com newer_than:400d (subject:和モダン OR subject:ヴィンテージ OR subject:中央卸売市場)",
 };
 
 function runParking() {
