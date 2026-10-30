@@ -23,7 +23,10 @@ export async function POST(req) {
   const msgId = (b.message_id || "").slice(0, 200);
 
   // 重複処理防止
-  if (msgId) {
+  // 過去分の取り込み（parking_request の backfill）は記録だけなので、判定ルールを直した後に
+  // 再実行して取りこぼしを拾えるよう、重複チェックをしない（parking_messages 側は上書き）。
+  const rescan = b.kind === "parking_request" && b.backfill;
+  if (msgId && !rescan) {
     const [dup] = await sql`select message_id from inbound_log where message_id = ${msgId}`;
     if (dup) return NextResponse.json({ ok: true, duplicate: true });
   }
@@ -111,6 +114,11 @@ const WANT = [
   /(駐車場|駐車スペース|パーキング)[^。？?\n]{0,12}(確保|予約|用意|使わせ|利用させ|空けて)[^。？?\nか]{0,6}(いただけ|頂け|もらえ|くださ|下さ)/,
   /((?<![電自停駐発乗下洗配列馬転風])車|レンタカー|自家用車|マイカー)[^。？?\n]{0,6}(で|を運転して)(行き|来|伺い|向かい|参り|移動し|到着し)(ます|たい|予定)/,
   /レンタカーを(借り|予約し|手配し)(ます|ました|る予定|ています)/,
+  // 「レンタカーをする予定」「レンタカーで行く予定」「車で向かう予定」（否定が入る余地のない形だけ）
+  /レンタカー(を|で)?(する|借りる|利用する|使う|手配する|予約する|行く|来る|伺う|向かう|移動する)(予定|つもり)/,
+  /((?<![電自停駐発乗下洗配列馬転風])車|自家用車|マイカー)で(行く|来る|伺う|向かう|移動する)(予定|つもり)/,
+  // こちらの「車種を教えてください」への回答（「車種はフリードです」「車種が指定できればフリードに」）
+  /車種(は|が|を)[^。？?\n]{0,25}(です|になります|予定|思って|思います|できれば|お願い)(?!(です)?か|\s*[？?])/,
   /(?<![電自停駐発乗下洗配列馬転風])車(が|を)\s?\d?\s?台?(あります|持って|利用します)/,
   /(would like|want|need|wish) to (use|reserve|book) (the |your |a )?(parking|car ?park)/i,
   /\b(we|i)('ll| will| are going to| am going to| are| am|'re|'m)? (be )?(driving|drive|rent(ing)? a car|come by car|bring(ing)? (a|our|my) car)/i,
@@ -136,6 +144,9 @@ const NO_CAR = [
 const isNoCar = (t) => NO_CAR.some((re) => re.test(t || ""));
 // want: 希望 / no_car: 車なし / question: それ以外の駐車場関連の発言
 const intentOf = (t) => (isNoCar(t) && !isWant(t) ? "no_car" : isWant(t) ? "want" : "question");
+// 駐車場・車に関係する発言か（関係ない発言は記録しない）。
+// 「駐車」の語が無くても、レンタカー・車種・車での来訪の話は駐車場の連絡として扱う（10/30 ノーザン406の取りこぼし対策）
+const RELATED = new RegExp(`駐車|パーキング|parking|car ?park|レンタカー|車種|${CAR}(で|を|が|は)|\\b(car|drive|driving)\\b`, "i");
 
 
 async function notice(sql, subject, lines) {
@@ -196,7 +207,7 @@ async function handleParkingRequest(sql, b) {
   const ctx = { building, property, ci, co, text, thread_url };
   const intent = intentOf(text);
   // 駐車場と関係ない発言（「地下鉄で何回乗り換え？」等）は記録しない
-  if (intent === "question" && !/駐車|パーキング|parking|car ?park/i.test(text)) return { ok: true, status: "unrelated", property };
+  if (intent === "question" && !RELATED.test(text)) return { ok: true, status: "unrelated", property };
   const gid = String(b.message_id || "").replace(/^pkb?:/, "") || null;
   const sentAt = b.sent_at && !isNaN(Date.parse(b.sent_at)) ? new Date(b.sent_at) : new Date();
   if (gid) await sql`insert into parking_messages (message_id, property_name, check_in, check_out, intent, text, thread_url, sent_at)
@@ -339,7 +350,7 @@ async function reclassifyMessages(sql) {
   for (const r of rows) {
     const g = guestOnly(r.text || "");
     const intent = g.trim() ? intentOf(g) : null;
-    const related = intent && (intent !== "question" || /駐車|パーキング|parking|car ?park/i.test(g));
+    const related = intent && (intent !== "question" || RELATED.test(g));
     if (!related) await sql`delete from parking_messages where message_id = ${r.message_id}`;
     else if (intent !== r.intent || g !== r.text) await sql`update parking_messages set intent = ${intent}, text = ${g.slice(0, 1500)} where message_id = ${r.message_id}`;
   }
