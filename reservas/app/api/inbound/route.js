@@ -299,6 +299,9 @@ async function reconcile(sql, today) {
   let backfilled = [];
   try { backfilled = JSON.parse(meta?.value || "[]"); } catch { backfilled = meta ? ["W14"] : []; }   // 旧形式（日時）は W14 のみ完了
   if (!Array.isArray(backfilled)) backfilled = ["W14"];
+  // 「手動🚗・発言なし」は、Airbnbのスレッドを読む定期タスク（9〜21時に2時間おき）が先に判定するので、
+  // メール通知はチェックイン2日前を過ぎても判定がつかない場合だけにする（スタッフへの通知を減らす）
+  const soon = new Date(Date.parse(today) + 2 * 864e5).toISOString().slice(0, 10);
   const found = [];
   for (const p of rows) {
     const building = keys.find((k) => p.property_name.startsWith(k + " "));
@@ -316,7 +319,7 @@ async function reconcile(sql, today) {
       lines = [`${head} に🚗が付いていますが、ゲストは車を使わない旨を書いています。`,
                p.source === "manual" ? "（手動で付けた🚗です）" : "（自動で付けた🚗です）", ...quote(decisive),
                "", "🚗を外すか、ゲストに確認してください。"];
-    } else if (p.parking && p.source === "manual" && msgs.length === 0 && backfilled.includes(building)) {
+    } else if (p.parking && p.source === "manual" && msgs.length === 0 && backfilled.includes(building) && p.ci <= soon) {
       const others = await sql`
         select property_name, to_char(check_in,'YYYY-MM-DD') as ci, to_char(check_out,'YYYY-MM-DD') as co
         from reservations where type = 'booking' and property_name like ${building + " %"} and property_name <> ${p.property_name}
