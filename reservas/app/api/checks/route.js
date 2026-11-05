@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { db } from "../../../lib/db.mjs";
 export const runtime = "nodejs";
 
+const fmtMD = (s) => { const [y, m, d] = s.split("-"); return `${Number(m)}/${Number(d)}`; };
+
 // 日付ベースの清掃チェック（予約に紐づかない。長期空室でも「いつ点検/清掃に入ったか」を記録できる）
 export async function GET() {
   const sql = db();
@@ -32,9 +34,29 @@ export async function POST(req) {
     await sql`delete from check_log where property_name = ${b.property_name} and date = ${b.date}`;
     return NextResponse.json({ ok: true, checked: false });
   }
+  // 既に付いているかを確認（新規チェック時だけ通知し、重複通知を避ける）
+  const [existing] = await sql`select 1 as e from check_log where property_name = ${b.property_name} and date = ${b.date}`;
   await sql`
     insert into check_log (property_name, date, memo)
     values (${b.property_name}, ${b.date}, ${(b.memo || "").slice(0, 200)})
     on conflict (property_name, date) do update set memo = excluded.memo, updated_at = now()`;
+
+  // 新しくチェックを付けた時だけ、その物件の Google Chat へ通知（旧・清掃後チェックと同じ連携を維持）
+  if (!existing) {
+    try {
+      const [hook] = await sql`select webhook_url from chat_webhooks where property_name = ${b.property_name}`;
+      if (hook?.webhook_url) {
+        const text = `✅ 【${b.property_name}】清掃チェック完了\n日付 ${fmtMD(b.date)}`;
+        await fetch(hook.webhook_url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json; charset=UTF-8" },
+          body: JSON.stringify({ text }),
+        });
+      }
+    } catch (e) {
+      console.error("chat notify failed", e);
+    }
+  }
+
   return NextResponse.json({ ok: true, checked: true });
 }
