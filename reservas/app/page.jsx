@@ -381,7 +381,7 @@ export default function Dashboard() {
   }
   // 日付ベースの清掃チェックを付け外し（予約に紐づかない）
   async function toggleCheck(property_name, date, on) {
-    if (!canCleanEdit) return;
+    if (!canEdit) return;   // 清掃チェックは運用者・管理者のみ（清掃担当は不可）
     setChecks((cs) => on
       ? (cs.some((c) => c.property_name === property_name && c.date === date) ? cs : [...cs, { property_name, date, memo: "" }])
       : cs.filter((c) => !(c.property_name === property_name && c.date === date)));
@@ -730,7 +730,7 @@ export default function Dashboard() {
 
       {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onParking={toggleParking} onParkingContact={setParkingContact} onMemo={saveMemo} onSplit={doSplit} onUnsplit={unSplit} onAckChange={ackChange} onGuests={saveGuests} canEdit={canEdit} isAdmin={isAdmin} isViewer={isCleaning} />}
       {cleanSel && <CleaningModal sel={cleanSel} onChange={setCleanSel} onSave={saveCleaning} onDelete={deleteCleaning} onClose={() => setCleanSel(null)} vendors={vendors} onAddVendor={addVendor} canAddVendor={canEdit} canManage={canEdit} isLead={isLead}
-        checked={checks.some((c) => c.property_name === cleanSel.property_name && c.date === cleanSel.date)} onToggleCheck={canCleanEdit ? toggleCheck : null} />}
+        checked={checks.some((c) => c.property_name === cleanSel.property_name && c.date === cleanSel.date)} onToggleCheck={canEdit ? toggleCheck : null} />}
       {vendorModal && <VendorModal vendors={vendors} onAdd={addVendor} onUpdate={updateVendor} onReorder={reorderVendors} onClose={() => setVendorModal(false)} />}
       {billerModal && <VendorModal vendors={billers} onAdd={addBiller} onUpdate={updateBiller} onReorder={reorderBillers} onClose={() => setBillerModal(false)} title="請求先マスタ" placeholder="新しい請求先名" />}
       {propModal && <PropertyModal p={propModal} tags={tags} propTags={propTags} onToggle={toggleTagForProp} onRename={doRename} onOpenTagModal={() => { setPropModal(null); setTagModal(true); }} onClose={() => setPropModal(null)} isAdmin={isAdmin} canEditNote={canEdit} note={(propNotes[propModal.name] || {}).note || ""} address={(propNotes[propModal.name] || {}).address || ""} billerId={(propNotes[propModal.name] || {}).biller_id || null} billers={billers} onSaveNote={saveNote} vendors={vendors} rates={rates} onSaveRate={saveRate} showRates={canEdit} />}
@@ -1338,7 +1338,7 @@ function CleaningModal({ sel, onChange, onSave, onDelete, onClose, vendors, onAd
           </button>
         )}
 
-        <div className="m-clean-sub">↓ 以下は清掃予定（業者・請求集計用）。チェックだけなら上のボタンだけでOK。</div>
+        {onToggleCheck && <div className="m-clean-sub">↓ 以下は清掃予定（業者・請求集計用）。チェックだけなら上のボタンだけでOK。</div>}
 
         {locked && <div className="m-info done" style={{ marginBottom: 6 }}><span>承認済みのため、責任者は変更できません。修正が必要な場合は管理者・運用者へ。</span></div>}
 
