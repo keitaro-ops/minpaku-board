@@ -131,6 +131,7 @@ export default function Dashboard() {
   const [showCleanLabel, setShowCleanLabel] = useState(true);
   const [showMemo, setShowMemo] = useState(true);
   const [cleanings, setCleanings] = useState([]);
+  const [checks, setChecks] = useState([]);   // 日付ベースの清掃チェック
   const [vendors, setVendors] = useState([]);
   const [rates, setRates] = useState({});     // { "物件|vendorId": price }
   const [vendorModal, setVendorModal] = useState(false);
@@ -238,6 +239,7 @@ export default function Dashboard() {
     try { const c = localStorage.getItem("mb_resv_cache"); if (c) setData(mapRows(JSON.parse(c))); } catch {}
     load();
     loadCleanings();
+    loadChecks();
     loadPropNotes();
     loadVendors();
     loadBillers();
@@ -290,14 +292,6 @@ export default function Dashboard() {
     setData((d) => d.map((x) => (x.res_code === r.res_code ? { ...x, changed: false } : x)));
     setSel(null);
     await fetch("/api/ackchange", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ res_code: r.res_code }) });
-    load();
-  }
-  async function toggleReady(r) {
-    if (!canEdit) return;
-    setData((d) => d.map((x) => (x.id === r.id ? { ...x, ready: !x.ready } : x)));
-    setSel(null);
-    await fetch("/api/ready", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ property_name: r.property_name, check_in: r.check_in, check_out: r.check_out, ready: !r.ready }) });
     load();
   }
   async function toggleParking(r) {
@@ -378,6 +372,22 @@ export default function Dashboard() {
       const r = await fetch("/api/cleanings");
       if (r.ok) setCleanings((await r.json()).cleanings || []);
     } catch {}
+  }
+  async function loadChecks() {
+    try {
+      const r = await fetch("/api/checks");
+      if (r.ok) setChecks((await r.json()).checks || []);
+    } catch {}
+  }
+  // 日付ベースの清掃チェックを付け外し（予約に紐づかない）
+  async function toggleCheck(property_name, date, on) {
+    if (!canCleanEdit) return;
+    setChecks((cs) => on
+      ? (cs.some((c) => c.property_name === property_name && c.date === date) ? cs : [...cs, { property_name, date, memo: "" }])
+      : cs.filter((c) => !(c.property_name === property_name && c.date === date)));
+    await fetch("/api/checks", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ property_name, date, on }) });
+    loadChecks();
   }
   async function saveCleaning(sel) {
     if (sel.id) {
@@ -643,7 +653,7 @@ export default function Dashboard() {
             <div className="lg-row"><span className="swatch" style={{ background: PLATFORMS.booking.bar }} />Booking 予約</div>
             <div className="lg-row"><span className="swatch hatch" />ブロック（件数外）</div>
             <div className="lg-row"><span className="dotm" style={{ background: "#FFD400" }} />事前情報 未提出</div>
-            <div className="lg-row"><span className="dotm" style={{ background: "#06B6D4" }} />清掃後チェック 未確認</div>
+            <div className="lg-row"><span className="lg-chk">✓</span>清掃チェック済み（日付）</div>
             <div className="lg-row"><span className="clean-legend" style={{ background: "#0F766E" }} />清掃予定（自社）</div>
             <div className="lg-row"><span className="pc-legend">🅿要</span>駐車場 必要・🚗未付与</div>
             <div className="lg-row"><span className="pc-legend">🅿不</span>駐車場 不要の連絡あり</div>
@@ -702,12 +712,12 @@ export default function Dashboard() {
           ) : view === "timeline" ? (
             <Timeline days={days} props={props} rows={filtered} today={today} onSel={tapEnabled ? setSel : null}
               tagsOf={tagsOf} dragName={dragName} onDrop={onDrop} canDrag={isAdmin && !groupByTag} showCleanLabel={showCleanLabel} dayW={dayW} nameW={nameW} scrollRef={scrollRef}
-              cleanings={cleaningVisible ? (pendingOnly ? cleanings.filter((c) => c.status === "pending") : cleanings) : []} canClean={canCleanEdit} fyByProp={fyByProp} fyLabel={`${fyRange.y}年度`} showMemo={showMemo} showStats={showStats && !isCleaning} propNotes={propNotes} showDate={isMobile} isLead={isLead}
+              cleanings={cleaningVisible ? (pendingOnly ? cleanings.filter((c) => c.status === "pending") : cleanings) : []} checks={cleaningVisible ? checks : []} canClean={canCleanEdit} fyByProp={fyByProp} fyLabel={`${fyRange.y}年度`} showMemo={showMemo} showStats={showStats && !isCleaning} propNotes={propNotes} showDate={isMobile} isLead={isLead}
               onAddCleaning={canCleanEdit ? ((pn, date) => setCleanSel({ property_name: pn, date, kind: "inhouse", memo: "" })) : null}
               onEditCleaning={canCleanEdit ? ((c) => setCleanSel({ ...c })) : null}
               onNameClick={(p) => setPropModal({ name: p.name, area: p.area })} />
           ) : view === "calendar" ? (
-            <CalendarView rows={data || []} props={props} cleanings={cleaningVisible ? cleanings : []}
+            <CalendarView rows={data || []} props={props} cleanings={cleaningVisible ? cleanings : []} checks={cleaningVisible ? checks : []}
               calProp={calProp || (props[0] && props[0].name) || ""} calMonth={calMonth}
               onSel={tapEnabled ? setSel : null} canClean={canCleanEdit}
               onAddCleaning={canCleanEdit ? ((pn, date) => setCleanSel({ property_name: pn, date, kind: "inhouse", memo: "" })) : null}
@@ -718,8 +728,9 @@ export default function Dashboard() {
         </main>
       </div>
 
-      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onReady={toggleReady} onParking={toggleParking} onParkingContact={setParkingContact} onMemo={saveMemo} onSplit={doSplit} onUnsplit={unSplit} onAckChange={ackChange} onGuests={saveGuests} canEdit={canEdit} isAdmin={isAdmin} isViewer={isCleaning} />}
-      {cleanSel && <CleaningModal sel={cleanSel} onChange={setCleanSel} onSave={saveCleaning} onDelete={deleteCleaning} onClose={() => setCleanSel(null)} vendors={vendors} onAddVendor={addVendor} canAddVendor={canEdit} canManage={canEdit} isLead={isLead} />}
+      {sel && <Detail r={sel} onClose={() => setSel(null)} onToggle={toggleType} onCheckin={toggleCheckin} onParking={toggleParking} onParkingContact={setParkingContact} onMemo={saveMemo} onSplit={doSplit} onUnsplit={unSplit} onAckChange={ackChange} onGuests={saveGuests} canEdit={canEdit} isAdmin={isAdmin} isViewer={isCleaning} />}
+      {cleanSel && <CleaningModal sel={cleanSel} onChange={setCleanSel} onSave={saveCleaning} onDelete={deleteCleaning} onClose={() => setCleanSel(null)} vendors={vendors} onAddVendor={addVendor} canAddVendor={canEdit} canManage={canEdit} isLead={isLead}
+        checked={checks.some((c) => c.property_name === cleanSel.property_name && c.date === cleanSel.date)} onToggleCheck={canCleanEdit ? toggleCheck : null} />}
       {vendorModal && <VendorModal vendors={vendors} onAdd={addVendor} onUpdate={updateVendor} onReorder={reorderVendors} onClose={() => setVendorModal(false)} />}
       {billerModal && <VendorModal vendors={billers} onAdd={addBiller} onUpdate={updateBiller} onReorder={reorderBillers} onClose={() => setBillerModal(false)} title="請求先マスタ" placeholder="新しい請求先名" />}
       {propModal && <PropertyModal p={propModal} tags={tags} propTags={propTags} onToggle={toggleTagForProp} onRename={doRename} onOpenTagModal={() => { setPropModal(null); setTagModal(true); }} onClose={() => setPropModal(null)} isAdmin={isAdmin} canEditNote={canEdit} note={(propNotes[propModal.name] || {}).note || ""} address={(propNotes[propModal.name] || {}).address || ""} billerId={(propNotes[propModal.name] || {}).biller_id || null} billers={billers} onSaveNote={saveNote} vendors={vendors} rates={rates} onSaveRate={saveRate} showRates={canEdit} />}
@@ -729,12 +740,14 @@ export default function Dashboard() {
   );
 }
 
-function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, canDrag, showCleanLabel, dayW, nameW, scrollRef, cleanings, canClean, onAddCleaning, onEditCleaning, onNameClick, fyByProp, fyLabel, showMemo, showStats, propNotes, showDate, isLead }) {
+function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, canDrag, showCleanLabel, dayW, nameW, scrollRef, cleanings, checks, canClean, onAddCleaning, onEditCleaning, onNameClick, fyByProp, fyLabel, showMemo, showStats, propNotes, showDate, isLead }) {
   const todayStr = isoDate(today);
   const gridW = days.length * dayW;
   const todayIdx = dayDiff(today, days[0]);
   const cleanByProp = {};
   (cleanings || []).forEach((c) => { (cleanByProp[c.property_name] ||= []).push(c); });
+  const checkByProp = {};
+  (checks || []).forEach((c) => { (checkByProp[c.property_name] ||= new Set()).add(c.date); });
   // 月の区切り
   const months = [];
   days.forEach((d) => {
@@ -810,13 +823,14 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
                   <div className="tl-lane" style={{ width: gridW }}>
                     {days.map((d, i) => {
                       const wknd = d.getDay() === 0 || d.getDay() === 6 || isJpHoliday(isoDate(d));
+                      const chk = (checkByProp[p.name] || null)?.has(isoDate(d));
                       return <div key={i} className={"cell" + (wknd ? " wknd" : "") + (onAddCleaning ? " addable" : "")} style={{ width: dayW }}
                         onClick={onAddCleaning ? (() => {
                           const ds = isoDate(d);
                           if (isLead && ds < todayStr) { alert("過去の日付には登録できません。管理者・運用者に依頼してください。"); return; }
                           onAddCleaning(p.name, ds);
                         }) : undefined}
-                        title={onAddCleaning ? `${fmtMD(d)} に清掃を追加` : undefined} />;
+                        title={onAddCleaning ? `${fmtMD(d)} に清掃を追加` : undefined}>{chk ? <span className="tlcheck" title="清掃チェック済み">✓</span> : null}</div>;
                     })}
                     {rs.map((r) => {
                       const off = dayDiff(r.ci, days[0]);
@@ -831,7 +845,6 @@ function Timeline({ days, props, rows, today, onSel, tagsOf, dragName, onDrop, c
                           onClick={() => onSel && onSel(r)}
                           title={`${p.name} ${fmtMD(r.ci)}〜${fmtMD(r.co)}（${r.nights}泊）`}>
                           {!block && !r.info_submitted && <span className="dotm" style={{ background: "#FFD400" }} title="事前情報 未提出" />}
-                          {!block && !r.ready && <span className="dotm" style={{ background: "#06B6D4" }} title="清掃後チェック 未確認" />}
                           {!block && r.parking ? <span className="memo-ico" title="駐車場 利用">🚗</span> : null}
                           {!block && pcShow(r) ? <span className={"memo-ico pc " + pcShow(r).cls} title={"駐車場の連絡：" + pcShow(r).label}>{pcShow(r).tag}</span> : null}
                           {!block && r.memo && !showMemo && <span className="memo-ico" title={r.memo}>📝</span>}
@@ -903,11 +916,12 @@ function ListView({ rows, sort, onSort, onSel }) {
   );
 }
 
-function CalendarView({ rows, props, cleanings, calProp, calMonth, onSel, canClean, onAddCleaning, onEditCleaning }) {
+function CalendarView({ rows, props, cleanings, checks, calProp, calMonth, onSel, canClean, onAddCleaning, onEditCleaning }) {
   const propName = calProp;
   const todayStr = isoDate(startOfDay(new Date()));
   const resv = (rows || []).filter((r) => r.property_name === propName);
   const cleans = (cleanings || []).filter((c) => c.property_name === propName);
+  const checkSet = new Set((checks || []).filter((c) => c.property_name === propName).map((c) => c.date));
   // calMonth を先頭に、縦に連続表示（先1年分）
   const months = [];
   for (let k = 0; k <= 12; k++) months.push(new Date(calMonth.getFullYear(), calMonth.getMonth() + k, 1));
@@ -925,7 +939,7 @@ function CalendarView({ rows, props, cleanings, calProp, calMonth, onSel, canCle
       </div>
       {months.map((mo, idx) => (
         <MonthGrid key={mo.getFullYear() + "-" + mo.getMonth()} y={mo.getFullYear()} m={mo.getMonth()}
-          resv={resv} cleans={cleans} onSel={onSel} onAddCleaning={onAddCleaning} onEditCleaning={onEditCleaning}
+          resv={resv} cleans={cleans} checkSet={checkSet} onSel={onSel} onAddCleaning={onAddCleaning} onEditCleaning={onEditCleaning}
           propName={propName} todayStr={todayStr} rootRef={null} />
       ))}
       <div className="cal-hint">予約バーをタップで詳細／空き日をタップで清掃追加（権限により異なります）。縦スクロールで前後の月が見られます。</div>
@@ -933,7 +947,7 @@ function CalendarView({ rows, props, cleanings, calProp, calMonth, onSel, canCle
   );
 }
 
-function MonthGrid({ y, m, resv, cleans, onSel, onAddCleaning, onEditCleaning, propName, todayStr, rootRef }) {
+function MonthGrid({ y, m, resv, cleans, checkSet, onSel, onAddCleaning, onEditCleaning, propName, todayStr, rootRef }) {
   const daysInMonth = new Date(y, m + 1, 0).getDate();
   const startWd = new Date(y, m, 1).getDay();
   const weeks = [];
@@ -988,10 +1002,12 @@ function MonthGrid({ y, m, resv, cleans, onSel, onAddCleaning, onEditCleaning, p
             const ds = d ? dstr(d) : "";
             const hol = d ? isJpHoliday(ds) : false;
             const cls = cleans.filter((x) => x.date === ds);
+            const chk = d && checkSet && checkSet.has(ds);
             return (
               <div key={c} className={"ccell" + (!d ? " empty" : "") + (d && ds === todayStr ? " today" : "")}
                 onClick={() => { if (!d) return; if (onAddCleaning) onAddCleaning(propName, ds); }}>
                 {d ? <span className={"cnum" + (hol || c === 0 ? " sun" : c === 6 ? " sat" : "")}>{d}</span> : null}
+                {chk ? <span className="ccheck" title="清掃チェック済み">✓</span> : null}
                 {cls.map((cc) => (
                   <span key={cc.id} className="cdot" title={`清掃 ${cc.vendor_name || (CLEANK[cc.kind] || CLEANK.inhouse).label}`}
                     onClick={(e) => { e.stopPropagation(); onEditCleaning && onEditCleaning(cc); }}>🧹</span>
@@ -1015,7 +1031,7 @@ function MonthGrid({ y, m, resv, cleans, onSel, onAddCleaning, onEditCleaning, p
   );
 }
 
-function Detail({ r, onClose, onToggle, onCheckin, onReady, onParking, onParkingContact, onMemo, onSplit, onUnsplit, onAckChange, onGuests, canEdit, isAdmin, isViewer }) {
+function Detail({ r, onClose, onToggle, onCheckin, onParking, onParkingContact, onMemo, onSplit, onUnsplit, onAckChange, onGuests, canEdit, isAdmin, isViewer }) {
   const pf = PLATFORMS[r.platform] || PLATFORMS.airbnb;
   const block = r.type === "block";
   const [splitDate, setSplitDate] = useState("");
@@ -1061,9 +1077,8 @@ function Detail({ r, onClose, onToggle, onCheckin, onReady, onParking, onParking
               {canEdit && <button onClick={() => onCheckin(r)}>{r.info_submitted ? "未提出に戻す" : "提出済みにする"}</button>}
             </div>
 
-            <div className={"m-info " + (r.ready ? "done" : "todo")}>
-              <span>清掃後チェック（お迎え準備）：<b>{r.ready ? "確認済み" : "未確認"}</b></span>
-              {canEdit && <button onClick={() => onReady(r)}>{r.ready ? "未確認に戻す" : "確認済みにする"}</button>}
+            <div className="m-info" style={{ fontSize: 12, color: "#64748B" }}>
+              <span>清掃チェックは「カレンダー」で日付ごとに付けられます（予約が無くてもOK）。</span>
             </div>
 
             <div className={"m-info " + (r.parking ? "done" : "todo")}>
@@ -1294,7 +1309,7 @@ function PropertyModal({ p, tags, propTags, onToggle, onRename, onOpenTagModal, 
   );
 }
 
-function CleaningModal({ sel, onChange, onSave, onDelete, onClose, vendors, onAddVendor, canAddVendor, canManage, isLead }) {
+function CleaningModal({ sel, onChange, onSave, onDelete, onClose, vendors, onAddVendor, canAddVendor, canManage, isLead, checked, onToggleCheck }) {
   const [adding, setAdding] = useState(false);
   const [newV, setNewV] = useState("");
   const active = (vendors || []).filter((v) => !v.archived);
@@ -1316,6 +1331,14 @@ function CleaningModal({ sel, onChange, onSave, onDelete, onClose, vendors, onAd
         </div>
         <h2 style={{ fontSize: 18 }}>{sel.property_name}</h2>
         <div className="m-prop">{sel.date}{sel.id ? "" : "（新規）"}</div>
+
+        {onToggleCheck && (
+          <button className={"chk-btn" + (checked ? " on" : "")} onClick={() => onToggleCheck(sel.property_name, sel.date, !checked)}>
+            {checked ? "✓ 清掃チェック済み（タップで取消）" : "この日を 清掃チェック済み にする"}
+          </button>
+        )}
+
+        <div className="m-clean-sub">↓ 以下は清掃予定（業者・請求集計用）。チェックだけなら上のボタンだけでOK。</div>
 
         {locked && <div className="m-info done" style={{ marginBottom: 6 }}><span>承認済みのため、責任者は変更できません。修正が必要な場合は管理者・運用者へ。</span></div>}
 
@@ -1434,6 +1457,10 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .legend { border-top:1px solid #EDF0F4; padding-top:14px; margin-bottom:14px; }
 .lg-t { font-size:11px; font-weight:600; color:#8A94A6; text-transform:uppercase; margin-bottom:8px; }
 .lg-row { display:flex; align-items:center; gap:8px; font-size:12px; color:#475467; padding:3px 0; }
+.lg-chk { color:#16A34A; font-weight:800; font-size:13px; width:12px; text-align:center; }
+.chk-btn { width:100%; margin:10px 0 4px; padding:11px; border-radius:10px; border:1.5px solid #16A34A; background:#fff; color:#16A34A; font-weight:700; font-size:14px; cursor:pointer; }
+.chk-btn.on { background:#16A34A; color:#fff; }
+.m-clean-sub { font-size:11px; color:#94A3B8; margin:2px 0 10px; }
 .side-actions { display:flex; flex-direction:column; gap:8px; border-top:1px solid #EDF0F4; padding-top:14px; }
 .ghost { text-align:left; border:1px solid #D8DDE5; background:#fff; border-radius:8px; padding:8px 11px; font-size:12.5px; cursor:pointer; font-family:inherit; color:#10151D; text-decoration:none; display:block; width:100%; }
 .ghost:hover { background:#F5F7FA; }
@@ -1475,8 +1502,9 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .grip { color:#C3CAD5; cursor:grab; font-size:11px; letter-spacing:-2px; user-select:none; }
 .cnt-badge { font-size:11px; color:#475467; background:#EEF1F5; border-radius:6px; padding:1px 7px; flex-shrink:0; }
 .tl-lane { position:relative; display:flex; }
-.cell { flex-shrink:0; height:100%; border-right:1px solid #F4F6F8; }
+.cell { flex-shrink:0; height:100%; border-right:1px solid #F4F6F8; position:relative; }
 .cell.wknd { background:#FBFAF7; }
+.tlcheck { position:absolute; left:0; right:0; top:1px; text-align:center; font-size:11px; font-weight:800; color:#16A34A; pointer-events:none; }
 .bar { position:absolute; border-radius:7px; border:1.5px solid transparent; display:flex; align-items:center; gap:3px; padding:0 7px; cursor:pointer; overflow:hidden; transition:transform .08s, box-shadow .08s; }
 .bar:hover { transform:translateY(-1px); box-shadow:0 3px 8px rgba(0,0,0,.18); z-index:3; }
 .bar .dotm { box-shadow:0 0 0 1.5px #1F2937; }
@@ -1522,6 +1550,7 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .cnum { font-size:12.5px; color:#344054; font-weight:600; }
 .cnum.sun { color:#DC2626; } .cnum.sat { color:#2563EB; }
 .cdot { position:absolute; right:3px; bottom:2px; font-size:11px; cursor:pointer; }
+.ccheck { position:absolute; right:4px; top:3px; font-size:13px; font-weight:800; color:#16A34A; line-height:1; }
 .cband { position:absolute; top:22px; height:20px; line-height:20px; border-radius:6px; font-size:10.5px; font-weight:600;
   padding:0 7px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer; z-index:2; box-shadow:0 1px 2px rgba(0,0,0,.12); }
 @media (max-width:820px){

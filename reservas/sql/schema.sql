@@ -91,6 +91,15 @@ create table if not exists ready_status (
   primary key (property_name, check_in, check_out)
 );
 
+-- 日付ベースの清掃チェック（予約に紐づかない。長期空室でも点検/清掃を記録。カレンダーに✓表示）
+create table if not exists check_log (
+  property_name text not null,
+  date date not null,
+  memo text default '',
+  updated_at timestamptz not null default now(),
+  primary key (property_name, date)
+);
+
 -- 駐車場マーク（同一建物で駐車場が限られる時、どの予約が使うか印をつける）。予約単位のオン/オフ。同期で消えない。
 create table if not exists parking_status (
   property_name text not null,
