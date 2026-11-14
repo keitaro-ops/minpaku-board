@@ -91,6 +91,17 @@ create table if not exists ready_status (
   primary key (property_name, check_in, check_out)
 );
 
+-- ダブルブッキング検知の記録（同期で検出。新規のみGoogle Chat通知・再発時は再通知）。sync.mjsが自動作成。
+create table if not exists booking_conflicts (
+  conflict_key text primary key,
+  property_name text not null,
+  detail text not null default '',
+  detected_at timestamptz not null default now(),
+  notified_chat boolean not null default false,
+  resolved boolean not null default false,
+  resolved_at timestamptz
+);
+
 -- 日付ベースの清掃チェック（予約に紐づかない。長期空室でも点検/清掃を記録。カレンダーに✓表示）
 create table if not exists check_log (
   property_name text not null,
