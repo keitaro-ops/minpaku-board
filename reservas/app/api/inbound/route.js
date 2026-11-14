@@ -77,12 +77,28 @@ export async function POST(req) {
     try { await sql`delete from change_flags where res_code = ${b.res_code}`; } catch {}
     result.saved = "airbnb_cancel_cleaned";
   } else if (b.kind === "booking_cancel" && b.res_number) {
-    // Booking キャンセル: 予約番号に一致する予約をブロック化（集計/表示から除外）
-    // res_url に予約番号が含まれることは少ないため、チェックイン日＋物件名でも補助照合。
-    // ここでは記録のみ（実際の除外は将来の照合ロジックで対応）。
+    // Booking キャンセル: 予約メールで確定した記録を無効化（ダブルブッキング照合の対象から外す）
+    try { await sql`update email_bookings set active = false where res_id = ${String(b.res_number).slice(0, 40)}`; } catch {}
     result.saved = "booking_cancel_logged";
   } else if (b.kind === "booking_new") {
-    result.saved = "booking_new_logged";
+    // Booking 新規予約メール＝「本物の予約」の確証。ダブルブッキング照合用に記録しておく。
+    // 日程(check_out)は同期時に iCal の該当予約から特定するため、ここでは check_in までで良い。
+    const ci = String(b.check_in || "").slice(0, 10);
+    const resId = String(b.res_id || b.res_number || "").slice(0, 40);
+    if (resId && /^\d{4}-\d{2}-\d{2}$/.test(ci)) {
+      try {
+        await sql`create table if not exists email_bookings (
+          res_id text primary key, hotel_id text default '', property_name text default '', listing text default '',
+          check_in date not null, active boolean not null default true, created_at timestamptz not null default now())`;
+        await sql`insert into email_bookings (res_id, hotel_id, property_name, listing, check_in, active)
+          values (${resId}, ${String(b.hotel_id || "").slice(0, 40)}, ${(b.property_name || "").slice(0, 120)}, ${(b.listing || "").slice(0, 160)}, ${ci}, true)
+          on conflict (res_id) do update set hotel_id = excluded.hotel_id, property_name = excluded.property_name,
+            listing = excluded.listing, check_in = excluded.check_in, active = true`;
+        result.saved = "booking_new_recorded";
+      } catch (e) { result.booking_new_error = String(e.message || e); result.saved = "booking_new_logged"; }
+    } else {
+      result.saved = "booking_new_logged";   // check_in/res_id が無いメール形式。照合には使えないので記録のみ。
+    }
   }
 
   if (msgId) {

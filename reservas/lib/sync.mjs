@@ -1,6 +1,7 @@
 import { db } from "./db.mjs";
 import { parseICS, mergeFeeds } from "./ical.mjs";
 import { ensureColumn, clearStuckParkingDDL } from "./parking.mjs";
+import { ensureConflictTable, recordConflict, detectEmailConflicts } from "./conflict.mjs";
 
 // 案A: チェックインが過ぎた予約（check_in < 今日 = 滞在開始済み）はDBに確定保存して残す。
 // これから始まる予約（check_in >= 今日）だけ iCal 最新で入れ替える。
@@ -117,7 +118,7 @@ export async function runSync() {
 
   // ダブルブッキングの可能性を検知し、新規のみ Google Chat へ通知
   let conflictsNew = 0;
-  try { conflictsNew = await detectAndAlertConflicts(sql, today); }
+  try { conflictsNew = await runConflictDetection(sql, today); }
   catch (e) { errors.push({ feed: "conflict_detect", error: String(e.message || e) }); }
 
   // 同期ログ（異常な大量削除に後から気づけるよう記録）
@@ -130,25 +131,18 @@ export async function runSync() {
   return { feeds: feedRows.length, reservations: count, updatedUpcoming: upcoming.length, parkingRemoved, conflictsNew, errors };
 }
 
-// ── ダブルブッキング検知（同一物件・両方とも予約(booking)・宿泊夜が重なる）──────────
-// 連動が効いている「予約＋ブロック」や完全同一日程の鏡は mergeFeeds で1件に畳まれるため誤検知しない。
-// 新規に見つかった時だけ Chat 通知（毎回の同期で鳴らさない）。重なりが解消したら resolved にし、再発時は再通知。
-const _fmtMD = (s) => { const [, m, d] = s.split("-"); return `${Number(m)}/${Number(d)}`; };
-const _platName = (x) => (x === "airbnb" ? "Airbnb" : x === "booking" ? "Booking.com" : x || "?");
+// ── ダブルブッキング検知（iCal検知 ＋ メール照合）───────────────────────────────
+// iCal: 同一物件・両方とも予約(booking)・夜が重なるペア。連動の「予約＋ブロック」や
+//       完全同一日程の鏡は mergeFeeds で1件に畳まれるため、iCal単体では拾えない/誤検知しない。
+// メール照合: Bookingの予約メール(email_bookings)で「本物の予約」と確定した日程を iCal の
+//       該当予約から特定し、同じ物件の Airbnb 予約と重なれば衝突（完全同一日程もここで検知）。
+// 新規に見つかった時だけ Chat 通知。重なりが解消したら resolved、再発で再通知。両検知は同一キーで重複排除。
+async function runConflictDetection(sql, today) {
+  await ensureConflictTable(sql);
+  const current = new Set();
+  let alerted = 0;
 
-async function detectAndAlertConflicts(sql, today) {
-  await sql`
-    create table if not exists booking_conflicts (
-      conflict_key text primary key,
-      property_name text not null,
-      detail text not null default '',
-      detected_at timestamptz not null default now(),
-      notified_chat boolean not null default false,
-      resolved boolean not null default false,
-      resolved_at timestamptz
-    )`;
-
-  // 同一物件・両方 booking・夜が重なる（CO=IN は重ならない）・重なりが今日以降
+  // 1) iCal 検知（両方 booking・夜が重なる・重なりが今日以降）
   const pairs = await sql`
     select a.property_name,
            a.platform as a_plat, to_char(a.check_in,'YYYY-MM-DD') as a_ci, to_char(a.check_out,'YYYY-MM-DD') as a_co,
@@ -161,59 +155,28 @@ async function detectAndAlertConflicts(sql, today) {
     where a.type = 'booking' and b.type = 'booking'
       and a.check_in < b.check_out and b.check_in < a.check_out
       and least(a.check_out, b.check_out) > ${today}::date`;
-
-  // 行idに依存しない正規キー（2辺を文字列ソート）
-  const keyOf = (p) => {
-    const A = `${p.a_plat}:${p.a_ci}:${p.a_co}`, B = `${p.b_plat}:${p.b_ci}:${p.b_co}`;
-    const [x, y] = [A, B].sort();
-    return `${p.property_name}||${x}||${y}`;
-  };
-  const current = new Map();
-  for (const p of pairs) current.set(keyOf(p), p);
-
-  // 解消したものは resolved（再発時に再通知できるように）
-  const openRows = await sql`select conflict_key from booking_conflicts where resolved = false`;
-  for (const r of openRows) {
-    if (!current.has(r.conflict_key))
-      await sql`update booking_conflicts set resolved = true, resolved_at = now() where conflict_key = ${r.conflict_key}`;
+  for (const p of pairs) {
+    const r = await recordConflict(sql, {
+      property_name: p.property_name,
+      A: { platform: p.a_plat, ci: p.a_ci, co: p.a_co },
+      B: { platform: p.b_plat, ci: p.b_ci, co: p.b_co },
+      overlap: { ci: p.ov_ci, co: p.ov_co },
+    });
+    current.add(r.key); if (r.newlyAlerted) alerted++;
   }
 
-  // 新規（未登録 or 以前 resolved）だけ通知
-  let newCount = 0;
-  for (const [k, p] of current) {
-    const [row] = await sql`select resolved from booking_conflicts where conflict_key = ${k}`;
-    const isNew = !row || row.resolved === true;
-    if (!isNew) continue;
-    const detail = JSON.stringify({ a: { platform: p.a_plat, ci: p.a_ci, co: p.a_co },
-                                    b: { platform: p.b_plat, ci: p.b_ci, co: p.b_co },
-                                    overlap: { ci: p.ov_ci, co: p.ov_co } });
-    await sql`
-      insert into booking_conflicts (conflict_key, property_name, detail, detected_at, notified_chat, resolved, resolved_at)
-      values (${k}, ${p.property_name}, ${detail}, now(), false, false, null)
-      on conflict (conflict_key) do update set resolved = false, resolved_at = null, detected_at = now(), detail = excluded.detail, notified_chat = false`;
-    newCount++;
-    await alertConflictChat(sql, p);
-    await sql`update booking_conflicts set notified_chat = true where conflict_key = ${k}`;
+  // 2) メール照合検知（Booking予約メール × Airbnb予約）
+  const emailConf = await detectEmailConflicts(sql, today);
+  for (const c of emailConf) {
+    const r = await recordConflict(sql, c);
+    current.add(r.key); if (r.newlyAlerted) alerted++;
   }
-  return newCount;
-}
 
-async function alertConflictChat(sql, p) {
-  const text =
-    `⚠️ 【ダブルブッキングの可能性】${p.property_name}\n` +
-    `A: ${_platName(p.a_plat)}  ${_fmtMD(p.a_ci)}〜${_fmtMD(p.a_co)}\n` +
-    `B: ${_platName(p.b_plat)}  ${_fmtMD(p.b_ci)}〜${_fmtMD(p.b_co)}\n` +
-    `重なり: ${_fmtMD(p.ov_ci)}〜${_fmtMD(p.ov_co)}\n` +
-    `※ Airbnb と Booking の連動・在庫設定をご確認ください。`;
-  const urls = [];
-  try {
-    const [hook] = await sql`select webhook_url from chat_webhooks where property_name = ${p.property_name}`;
-    if (hook?.webhook_url) urls.push(hook.webhook_url);
-  } catch {}
-  if (process.env.OPS_CHAT_WEBHOOK) urls.push(process.env.OPS_CHAT_WEBHOOK);
-  for (const u of urls) {
-    try {
-      await fetch(u, { method: "POST", headers: { "Content-Type": "application/json; charset=UTF-8" }, body: JSON.stringify({ text }) });
-    } catch {}
+  // 3) どちらの検知にも出てこなくなったものは resolved（再発時に再通知できるように）
+  const open = await sql`select conflict_key from booking_conflicts where resolved = false`;
+  for (const o of open) {
+    if (!current.has(o.conflict_key))
+      await sql`update booking_conflicts set resolved = true, resolved_at = now() where conflict_key = ${o.conflict_key}`;
   }
+  return alerted;
 }

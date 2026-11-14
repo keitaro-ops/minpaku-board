@@ -102,6 +102,18 @@ create table if not exists booking_conflicts (
   resolved_at timestamptz
 );
 
+-- Bookingの予約メールで確定した「本物の予約」の記録（ダブルブッキングの完全同一日程検知に使用）。
+-- inbound(booking_new)が自動作成。check_outは同期時にiCalの該当予約から特定する。
+create table if not exists email_bookings (
+  res_id text primary key,
+  hotel_id text default '',
+  property_name text default '',
+  listing text default '',
+  check_in date not null,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
 -- 日付ベースの清掃チェック（予約に紐づかない。長期空室でも点検/清掃を記録。カレンダーに✓表示）
 create table if not exists check_log (
   property_name text not null,
