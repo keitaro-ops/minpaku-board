@@ -602,7 +602,10 @@ export default function Dashboard() {
       </header>
 
       <div className="body">
-        <button className="side-toggle" onClick={() => setSideOpen((v) => !v)}>{sideOpen ? "✕ 閉じる" : "☰ フィルター・設定"}</button>
+        <div className="mobile-bar">
+          <button className="side-toggle" onClick={() => setSideOpen((v) => !v)}>{sideOpen ? "✕ 閉じる" : "☰ フィルター・設定"}</button>
+          {!isCleaning && <input className="msearch" placeholder="物件・エリア・タグを検索" value={q} onChange={(e) => setQ(e.target.value)} />}
+        </div>
         <aside className={"side" + (sideOpen ? " open" : "")}>
           {!isCleaning && <input className="search" placeholder="物件・エリア・タグを検索" value={q} onChange={(e) => setQ(e.target.value)} />}
           {!isCleaning && (
@@ -1580,6 +1583,7 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .body { display:flex; align-items:flex-start; }
 .side { width:220px; flex:0 0 220px; padding:18px 16px; border-right:1px solid #E3E7ED; background:#fff; min-height:calc(100vh - 74px); }
 .side-toggle { display:none; }
+.mobile-bar { display:none; }
 .main { flex:1; min-width:0; padding:16px 20px 40px; }
 .search { width:100%; padding:9px 11px; border:1px solid #D8DDE5; border-radius:9px; font-size:13px; margin-bottom:18px; outline:none; }
 .fg { margin-bottom:18px; }
@@ -1765,7 +1769,9 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .muted { color:#98A2B3; }
 @media (max-width:820px){
   .body { flex-direction:column; }
-  .side-toggle { display:block; margin:10px 12px 0; padding:10px 14px; border:1px solid #D8DDE5; border-radius:10px; background:#fff; font-family:inherit; font-size:13px; font-weight:600; cursor:pointer; }
+  .mobile-bar { display:flex; align-items:center; gap:8px; margin:10px 12px 0; }
+  .side-toggle { display:block; margin:0; flex:0 0 auto; white-space:nowrap; padding:10px 14px; border:1px solid #D8DDE5; border-radius:10px; background:#fff; font-family:inherit; font-size:13px; font-weight:600; cursor:pointer; }
+  .msearch { flex:1 1 auto; min-width:0; padding:10px 12px; border:1px solid #D8DDE5; border-radius:10px; font-size:13px; font-family:inherit; outline:none; background:#fff; }
   .side { display:none; width:100%; flex:none; min-height:0; border-right:0; border-bottom:1px solid #E3E7ED; max-height:70vh; overflow:auto; }
   .side.open { display:flex; flex-direction:column; }
   .hdr { padding:12px 14px; gap:12px; }
