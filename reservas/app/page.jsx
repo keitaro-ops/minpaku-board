@@ -708,14 +708,14 @@ export default function Dashboard() {
             {view === "calendar" && (
               <div className="nav">
                 <select className="cal-sel" value={calProp} onChange={(e) => setCalProp(e.target.value)}>
+                  <optgroup label="物件">
+                    {props.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+                  </optgroup>
                   {tags.length > 0 && (
                     <optgroup label="グループ（タグ）">
                       {tags.map((t) => <option key={"g:" + t.id} value={"g:" + t.id}>◆ {t.name}（まとめて表示）</option>)}
                     </optgroup>
                   )}
-                  <optgroup label="物件">
-                    {props.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
-                  </optgroup>
                 </select>
                 <span className="nav-sep" />
                 <button onClick={() => setCalMonth(new Date(calMonth.getFullYear(), calMonth.getMonth() - 1, 1))}>‹ 前月</button>
@@ -971,7 +971,7 @@ function CalendarView({ rows, props, propTags, tags, cleanings, checks, calProp,
         </div>
         {months.map((mo) => (
           <MonthGridGroup key={mo.getFullYear() + "-" + mo.getMonth()} y={mo.getFullYear()} m={mo.getMonth()}
-            gres={gres} colorOf={colorOf} onSel={onSel} todayStr={todayStr} />
+            gres={gres} colorOf={colorOf} order={members} onSel={onSel} todayStr={todayStr} />
         ))}
         <div className="cal-hint">各日に「予約が入っている部屋」を棟ごとの色で表示（🚗は駐車場あり）。チップをタップで予約詳細。空いている部屋はそこに出ていない部屋です。</div>
       </div>
@@ -1000,7 +1000,7 @@ function CalendarView({ rows, props, propTags, tags, cleanings, checks, calProp,
 }
 
 // グループ用の月グリッド：各日セルに「その日に予約が入っている部屋」をチップで表示
-function MonthGridGroup({ y, m, gres, colorOf, onSel, todayStr }) {
+function MonthGridGroup({ y, m, gres, colorOf, order, onSel, todayStr }) {
   const daysInMonth = new Date(y, m + 1, 0).getDate();
   const startWd = new Date(y, m, 1).getDay();
   const weeks = [];
@@ -1028,7 +1028,7 @@ function MonthGridGroup({ y, m, gres, colorOf, onSel, todayStr }) {
         leftCol = ciInWeek ? s + 0.12 : s;
         rightCol = coInWeek ? (coCol + 0.28) : (e + 1);
         roundL = ciInWeek; roundR = coInWeek;
-        label = ciInWeek ? (r.parking ? "🚗 " : "") + r.property_name : "";
+        label = (r.parking ? "🚗 " : "") + r.property_name;   // 週明けに繋がるバーにも物件名を出す
       } else if (coInWeek) {
         leftCol = coCol; rightCol = coCol + 0.28; roundL = false; roundR = true; label = "";
       } else return;
@@ -1036,15 +1036,12 @@ function MonthGridGroup({ y, m, gres, colorOf, onSel, todayStr }) {
         bg: block ? "#EEF1F5" : (colorOf ? colorOf(r.property_name) : "#2563EB"),
         ink: block ? "#6B7280" : "#fff" });
     });
-    // レーン割り当て（横に重ならない帯は同じ行、重なるものは別行）
-    raw.sort((a, b) => a.leftCol - b.leftCol || a.r.property_name.localeCompare(b.r.property_name));
-    const laneRight = [];
-    raw.forEach((b) => {
-      let lane = 0;
-      while (lane < laneRight.length && laneRight[lane] > b.leftCol + 0.001) lane++;
-      b.lane = lane; laneRight[lane] = b.rightCol;
-    });
-    return { bands: raw, lanes: Math.max(1, laneRight.length) };
+    // レーン割り当て：この週に出てくる物件をタイムライン順に並べ、物件ごとに固定行を割り当てる
+    const orderIdx = (n) => { const i = (order || []).indexOf(n); return i === -1 ? 1e9 : i; };
+    const present = [...new Set(raw.map((b) => b.r.property_name))].sort((a, b) => orderIdx(a) - orderIdx(b) || a.localeCompare(b));
+    const laneOf = new Map(present.map((n, i) => [n, i]));
+    raw.forEach((b) => { b.lane = laneOf.get(b.r.property_name); });
+    return { bands: raw, lanes: Math.max(1, present.length) };
   }
 
   const BAR = 19, GAP = 3, HEAD = 22;
