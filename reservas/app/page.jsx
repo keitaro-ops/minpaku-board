@@ -461,8 +461,20 @@ export default function Dashboard() {
     return hidden;
   }, [isCleaning, tags, propTags]);
 
+  // 検索対象テキスト（物件名＋エリア＋タグ名）。エリアはタグで表現されることが多いためタグ名も含める。
+  const propSearch = useMemo(() => {
+    const m = new Map();
+    for (const p of baseProps) {
+      const tnames = (propTags[p.name] || []).map((id) => (tags.find((t) => t.id === id) || {}).name || "").join(" ");
+      m.set(p.name, `${p.name} ${p.area || ""} ${tnames}`.toLowerCase());
+    }
+    return m;
+  }, [baseProps, propTags, tags]);
+  const matchQ = (name, s) => !s || (propSearch.get(name) || name.toLowerCase()).includes(s);
+
   const props = useMemo(() => {
-    let list = baseProps.filter((p) => !viewerHidden.has(p.name));
+    const s = q.trim().toLowerCase();
+    let list = baseProps.filter((p) => !viewerHidden.has(p.name) && matchQ(p.name, s));
     // 保存済みの順序を適用（未登録の新物件は末尾）
     const pos = (n) => { const i = order.indexOf(n); return i === -1 ? 1e9 : i; };
     list.sort((a, b) => pos(a.name) - pos(b.name) || a.name.localeCompare(b.name));
@@ -471,7 +483,7 @@ export default function Dashboard() {
       list.sort((a, b) => tpos(a.name) - tpos(b.name) || pos(a.name) - pos(b.name));
     }
     return list;
-  }, [baseProps, order, groupByTag, propTags, tags, viewerHidden]);
+  }, [baseProps, order, groupByTag, propTags, tags, viewerHidden, q, propSearch]);
 
   const alertLimit = useMemo(() => new Date(today.getTime() + 5 * DAY_MS), [today]);
   const isAlert = (r) => r.type === "booking" && !r.info_submitted && r.ci >= today && r.ci <= alertLimit;
@@ -486,10 +498,10 @@ export default function Dashboard() {
       if (needInfoOnly && (r.type !== "booking" || r.info_submitted)) return false;
       if (alertOnly && !isAlert(r)) return false;
       if (changedOnly && !r.changed) return false;
-      if (s && !`${r.property_name} ${r.area || ""}`.toLowerCase().includes(s)) return false;
+      if (!matchQ(r.property_name, s)) return false;
       return true;
     });
-  }, [data, plat, showBlocks, needInfoOnly, alertOnly, changedOnly, q, today, alertLimit, viewerHidden]);
+  }, [data, plat, showBlocks, needInfoOnly, alertOnly, changedOnly, q, today, alertLimit, viewerHidden, propSearch]);
 
   const stats = useMemo(() => {
     const mStart = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -592,7 +604,7 @@ export default function Dashboard() {
       <div className="body">
         <button className="side-toggle" onClick={() => setSideOpen((v) => !v)}>{sideOpen ? "✕ 閉じる" : "☰ フィルター・設定"}</button>
         <aside className={"side" + (sideOpen ? " open" : "")}>
-          {!isCleaning && <input className="search" placeholder="物件・エリアを検索" value={q} onChange={(e) => setQ(e.target.value)} />}
+          {!isCleaning && <input className="search" placeholder="物件・エリア・タグを検索" value={q} onChange={(e) => setQ(e.target.value)} />}
           {!isCleaning && (
           <FilterGroup title="サイト">
             {Object.entries(PLATFORMS).map(([k, v]) => (
