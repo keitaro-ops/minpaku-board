@@ -952,17 +952,28 @@ function CalendarView({ rows, props, propTags, tags, cleanings, checks, calProp,
     const members = (props || []).map((p) => p.name).filter((n) => ((propTags || {})[n] || []).includes(tagId));
     const mset = new Set(members);
     const gres = (rows || []).filter((r) => mset.has(r.property_name));
+    // 棟（物件名の最後のスペースより前）ごとに自動で色分け
+    const headOf = (n) => { const i = n.lastIndexOf(" "); return i >= 0 ? n.slice(0, i) : n; };
+    const GPAL = ["#2563EB", "#16A34A", "#D97706", "#DB2777", "#7C3AED", "#0891B2", "#CA8A04", "#4F46E5"];
+    const heads = [...new Set(members.map(headOf))].sort();
+    const colorForHead = (h) => GPAL[Math.max(0, heads.indexOf(h)) % GPAL.length];
+    const colorOf = (name) => colorForHead(headOf(name));
     return (
       <div className="cal">
         <div className="cal-title"><b>◆ {groupTag ? groupTag.name : "グループ"}</b>　<span className="cal-sub">{members.length}室・各日の埋まり部屋を表示</span></div>
+        {heads.length > 1 && (
+          <div className="glegend">
+            {heads.map((h) => <span key={h} className="gleg"><span className="gsw" style={{ background: colorForHead(h) }} />{h}</span>)}
+          </div>
+        )}
         <div className="cal-wdrow">
           {WD.map((w, i) => <div key={w} className={"cal-wd" + (i === 0 ? " sun" : i === 6 ? " sat" : "")}>{w}</div>)}
         </div>
         {months.map((mo) => (
           <MonthGridGroup key={mo.getFullYear() + "-" + mo.getMonth()} y={mo.getFullYear()} m={mo.getMonth()}
-            gres={gres} onSel={onSel} todayStr={todayStr} />
+            gres={gres} colorOf={colorOf} onSel={onSel} todayStr={todayStr} />
         ))}
-        <div className="cal-hint">各日に「予約が入っている部屋」を表示（🚗は駐車場あり）。チップをタップで予約詳細。空いている部屋はそこに出ていない部屋です。</div>
+        <div className="cal-hint">各日に「予約が入っている部屋」を棟ごとの色で表示（🚗は駐車場あり）。チップをタップで予約詳細。空いている部屋はそこに出ていない部屋です。</div>
       </div>
     );
   }
@@ -989,14 +1000,13 @@ function CalendarView({ rows, props, propTags, tags, cleanings, checks, calProp,
 }
 
 // グループ用の月グリッド：各日セルに「その日に予約が入っている部屋」をチップで表示
-function MonthGridGroup({ y, m, gres, onSel, todayStr }) {
+function MonthGridGroup({ y, m, gres, colorOf, onSel, todayStr }) {
   const daysInMonth = new Date(y, m + 1, 0).getDate();
   const startWd = new Date(y, m, 1).getDay();
   const cells = new Array(startWd).fill(0);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
   while (cells.length % 7) cells.push(0);
   const dstr = (d) => isoDate(new Date(y, m, d));
-  const shortName = (n) => { const i = n.lastIndexOf(" "); return i >= 0 ? n.slice(i + 1) : n; };
   // 日付 → その日に泊まっている予約（ci <= day < co）
   const occOf = (ds) => gres.filter((r) => isoDate(r.ci) <= ds && ds < isoDate(r.co))
     .sort((a, b) => a.property_name.localeCompare(b.property_name));
@@ -1016,12 +1026,11 @@ function MonthGridGroup({ y, m, gres, onSel, todayStr }) {
               <div className="gchips">
                 {occ.map((r, k) => {
                   const block = r.type === "block";
-                  const pf = PLATFORMS[r.platform] || PLATFORMS.airbnb;
                   return (
                     <span key={k} className="gchip" title={`${r.property_name}  ${isoDate(r.ci)}〜${isoDate(r.co)}${r.guest_name ? " / " + r.guest_name : ""}`}
-                      style={{ background: block ? "#EEF1F5" : pf.bar, color: block ? "#6B7280" : "#fff", borderColor: block ? "#D7DCE3" : "transparent" }}
+                      style={{ background: block ? "#EEF1F5" : (colorOf ? colorOf(r.property_name) : "#2563EB"), color: block ? "#6B7280" : "#fff", borderColor: block ? "#D7DCE3" : "transparent" }}
                       onClick={() => onSel && !block && onSel(r)}>
-                      {r.parking ? "🚗" : ""}{shortName(r.property_name)}
+                      {r.parking ? "🚗 " : ""}{r.property_name}
                     </span>
                   );
                 })}
@@ -1639,6 +1648,9 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .cdot { position:absolute; right:3px; bottom:2px; font-size:11px; cursor:pointer; }
 .ccheck { position:absolute; right:4px; top:4px; width:22px; height:22px; border-radius:50%; background:#16A34A; color:#fff; font-size:15px; font-weight:900; line-height:22px; text-align:center; box-shadow:0 1px 3px rgba(22,163,74,.45); }
 .cal-sub { font-size:12px; color:#64748B; font-weight:600; }
+.glegend { display:flex; flex-wrap:wrap; gap:6px 14px; margin:2px 2px 10px; }
+.gleg { display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:700; color:#334155; }
+.gsw { width:12px; height:12px; border-radius:3px; display:inline-block; }
 .gweeks { display:grid; grid-template-columns:repeat(7,1fr); }
 .gcell { min-height:92px; margin:3px; background:#fff; border:1px solid #E6E9EE; border-radius:10px; padding:4px 5px; position:relative; box-shadow:0 1px 2px rgba(16,24,40,.04); }
 .gcell.empty { background:transparent; border:1px dashed #DDE1E7; box-shadow:none; }
