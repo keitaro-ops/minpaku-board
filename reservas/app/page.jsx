@@ -708,7 +708,14 @@ export default function Dashboard() {
             {view === "calendar" && (
               <div className="nav">
                 <select className="cal-sel" value={calProp} onChange={(e) => setCalProp(e.target.value)}>
-                  {props.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+                  {tags.length > 0 && (
+                    <optgroup label="グループ（タグ）">
+                      {tags.map((t) => <option key={"g:" + t.id} value={"g:" + t.id}>◆ {t.name}（まとめて表示）</option>)}
+                    </optgroup>
+                  )}
+                  <optgroup label="物件">
+                    {props.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+                  </optgroup>
                 </select>
                 <span className="nav-sep" />
                 <button onClick={() => setCalMonth(new Date(calMonth.getFullYear(), calMonth.getMonth() - 1, 1))}>‹ 前月</button>
@@ -729,7 +736,7 @@ export default function Dashboard() {
               onEditCleaning={canCleanEdit ? ((c) => setCleanSel({ ...c })) : null}
               onNameClick={(p) => setPropModal({ name: p.name, area: p.area })} />
           ) : view === "calendar" ? (
-            <CalendarView rows={data || []} props={props} cleanings={cleaningVisible ? cleanings : []} checks={cleaningVisible ? checks : []}
+            <CalendarView rows={data || []} props={props} propTags={propTags} tags={tags} cleanings={cleaningVisible ? cleanings : []} checks={cleaningVisible ? checks : []}
               calProp={calProp || (props[0] && props[0].name) || ""} calMonth={calMonth}
               onSel={tapEnabled ? setSel : null} canClean={canCleanEdit}
               onAddCleaning={canCleanEdit ? ((pn, date) => setCleanSel({ property_name: pn, date, kind: "inhouse", memo: "" })) : null}
@@ -928,21 +935,43 @@ function ListView({ rows, sort, onSort, onSel }) {
   );
 }
 
-function CalendarView({ rows, props, cleanings, checks, calProp, calMonth, onSel, canClean, onAddCleaning, onEditCleaning }) {
-  const propName = calProp;
+function CalendarView({ rows, props, propTags, tags, cleanings, checks, calProp, calMonth, onSel, canClean, onAddCleaning, onEditCleaning }) {
   const todayStr = isoDate(startOfDay(new Date()));
-  const resv = (rows || []).filter((r) => r.property_name === propName);
-  const cleans = (cleanings || []).filter((c) => c.property_name === propName);
-  const checkSet = new Set((checks || []).filter((c) => c.property_name === propName).map((c) => c.date));
   // calMonth を先頭に、縦に連続表示（先1年分）
   const months = [];
   for (let k = 0; k <= 12; k++) months.push(new Date(calMonth.getFullYear(), calMonth.getMonth() + k, 1));
-  // カレンダー表示・月切替・物件切替のたびに、画面（ページ）の一番上へ戻す
-  // → スマホでも物件選択タブが最初に見える
   useEffect(() => {
     try { window.scrollTo({ top: 0, behavior: "auto" }); } catch { window.scrollTo(0, 0); }
-  }, [calMonth, propName]);
+  }, [calMonth, calProp]);
 
+  // グループ（タグ）表示: calProp が "g:<tagId>" のとき
+  const isGroup = (calProp || "").startsWith("g:");
+  if (isGroup) {
+    const tagId = calProp.slice(2);
+    const groupTag = (tags || []).find((t) => t.id === tagId);
+    const members = (props || []).map((p) => p.name).filter((n) => ((propTags || {})[n] || []).includes(tagId));
+    const mset = new Set(members);
+    const gres = (rows || []).filter((r) => mset.has(r.property_name));
+    return (
+      <div className="cal">
+        <div className="cal-title"><b>◆ {groupTag ? groupTag.name : "グループ"}</b>　<span className="cal-sub">{members.length}室・各日の埋まり部屋を表示</span></div>
+        <div className="cal-wdrow">
+          {WD.map((w, i) => <div key={w} className={"cal-wd" + (i === 0 ? " sun" : i === 6 ? " sat" : "")}>{w}</div>)}
+        </div>
+        {months.map((mo) => (
+          <MonthGridGroup key={mo.getFullYear() + "-" + mo.getMonth()} y={mo.getFullYear()} m={mo.getMonth()}
+            gres={gres} onSel={onSel} todayStr={todayStr} />
+        ))}
+        <div className="cal-hint">各日に「予約が入っている部屋」を表示（🚗は駐車場あり）。チップをタップで予約詳細。空いている部屋はそこに出ていない部屋です。</div>
+      </div>
+    );
+  }
+
+  // 単一物件表示
+  const propName = calProp;
+  const resv = (rows || []).filter((r) => r.property_name === propName);
+  const cleans = (cleanings || []).filter((c) => c.property_name === propName);
+  const checkSet = new Set((checks || []).filter((c) => c.property_name === propName).map((c) => c.date));
   return (
     <div className="cal">
       <div className="cal-title"><b>{propName || "（物件未選択）"}</b></div>
@@ -955,6 +984,52 @@ function CalendarView({ rows, props, cleanings, checks, calProp, calMonth, onSel
           propName={propName} todayStr={todayStr} rootRef={null} />
       ))}
       <div className="cal-hint">予約バーをタップで詳細／空き日をタップで清掃追加（権限により異なります）。縦スクロールで前後の月が見られます。</div>
+    </div>
+  );
+}
+
+// グループ用の月グリッド：各日セルに「その日に予約が入っている部屋」をチップで表示
+function MonthGridGroup({ y, m, gres, onSel, todayStr }) {
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const startWd = new Date(y, m, 1).getDay();
+  const cells = new Array(startWd).fill(0);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7) cells.push(0);
+  const dstr = (d) => isoDate(new Date(y, m, d));
+  const shortName = (n) => { const i = n.lastIndexOf(" "); return i >= 0 ? n.slice(i + 1) : n; };
+  // 日付 → その日に泊まっている予約（ci <= day < co）
+  const occOf = (ds) => gres.filter((r) => isoDate(r.ci) <= ds && ds < isoDate(r.co))
+    .sort((a, b) => a.property_name.localeCompare(b.property_name));
+
+  return (
+    <div className="cmonth">
+      <div className="cmonth-h">{y}年{m + 1}月</div>
+      <div className="gweeks">
+        {cells.map((d, i) => {
+          const ds = d ? dstr(d) : "";
+          const hol = d ? isJpHoliday(ds) : false;
+          const wd = i % 7;
+          const occ = d ? occOf(ds) : [];
+          return (
+            <div key={i} className={"gcell" + (!d ? " empty" : "") + (d && ds === todayStr ? " today" : "")}>
+              {d ? <span className={"cnum" + (hol || wd === 0 ? " sun" : wd === 6 ? " sat" : "")}>{d}</span> : null}
+              <div className="gchips">
+                {occ.map((r, k) => {
+                  const block = r.type === "block";
+                  const pf = PLATFORMS[r.platform] || PLATFORMS.airbnb;
+                  return (
+                    <span key={k} className="gchip" title={`${r.property_name}  ${isoDate(r.ci)}〜${isoDate(r.co)}${r.guest_name ? " / " + r.guest_name : ""}`}
+                      style={{ background: block ? "#EEF1F5" : pf.bar, color: block ? "#6B7280" : "#fff", borderColor: block ? "#D7DCE3" : "transparent" }}
+                      onClick={() => onSel && !block && onSel(r)}>
+                      {r.parking ? "🚗" : ""}{shortName(r.property_name)}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1563,6 +1638,18 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .cnum.sun { color:#DC2626; } .cnum.sat { color:#2563EB; }
 .cdot { position:absolute; right:3px; bottom:2px; font-size:11px; cursor:pointer; }
 .ccheck { position:absolute; right:4px; top:4px; width:22px; height:22px; border-radius:50%; background:#16A34A; color:#fff; font-size:15px; font-weight:900; line-height:22px; text-align:center; box-shadow:0 1px 3px rgba(22,163,74,.45); }
+.cal-sub { font-size:12px; color:#64748B; font-weight:600; }
+.gweeks { display:grid; grid-template-columns:repeat(7,1fr); }
+.gcell { min-height:92px; margin:3px; background:#fff; border:1px solid #E6E9EE; border-radius:10px; padding:4px 5px; position:relative; box-shadow:0 1px 2px rgba(16,24,40,.04); }
+.gcell.empty { background:transparent; border:1px dashed #DDE1E7; box-shadow:none; }
+.gcell.today { background:#FFF7E6; border-color:#F2D98C; }
+.gchips { display:flex; flex-direction:column; gap:3px; margin-top:20px; }
+.gchip { display:block; border:1px solid transparent; border-radius:6px; padding:2px 6px; font-size:12px; font-weight:700; line-height:1.3; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+@media (max-width:820px){
+  .gcell { min-height:66px; margin:2px; padding:3px 3px; border-radius:8px; }
+  .gchips { margin-top:16px; gap:2px; }
+  .gchip { font-size:10px; padding:1px 4px; }
+}
 .cband { position:absolute; top:22px; height:20px; line-height:20px; border-radius:6px; font-size:10.5px; font-weight:600;
   padding:0 7px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer; z-index:2; box-shadow:0 1px 2px rgba(0,0,0,.12); }
 @media (max-width:820px){
