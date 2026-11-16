@@ -752,6 +752,7 @@ export default function Dashboard() {
               onNameClick={(p) => setPropModal({ name: p.name, area: p.area })} />
           ) : view === "calendar" ? (
             <CalendarView rows={data || []} props={props} propTags={propTags} tags={tags} cleanings={cleaningVisible ? cleanings : []} checks={cleaningVisible ? checks : []} isMobile={isMobile}
+              searchActive={q.trim() !== ""} searchTerm={q.trim()}
               calProp={calPropEff} calMonth={calMonth}
               onSel={tapEnabled ? setSel : null} canClean={canCleanEdit}
               onAddCleaning={canCleanEdit ? ((pn, date) => setCleanSel({ property_name: pn, date, kind: "inhouse", memo: "" })) : null}
@@ -950,7 +951,7 @@ function ListView({ rows, sort, onSort, onSel }) {
   );
 }
 
-function CalendarView({ rows, props, propTags, tags, cleanings, checks, calProp, calMonth, onSel, canClean, onAddCleaning, onEditCleaning, isMobile }) {
+function CalendarView({ rows, props, propTags, tags, cleanings, checks, calProp, calMonth, onSel, canClean, onAddCleaning, onEditCleaning, isMobile, searchActive, searchTerm }) {
   const todayStr = isoDate(startOfDay(new Date()));
   // calMonth を先頭に、縦に連続表示（先1年分）
   const months = [];
@@ -959,12 +960,21 @@ function CalendarView({ rows, props, propTags, tags, cleanings, checks, calProp,
     try { window.scrollTo({ top: 0, behavior: "auto" }); } catch { window.scrollTo(0, 0); }
   }, [calMonth, calProp]);
 
-  // グループ（タグ）表示: calProp が "g:<tagId>" のとき
-  const isGroup = (calProp || "").startsWith("g:");
-  if (isGroup) {
-    const tagId = calProp.slice(2);
-    const groupTag = (tags || []).find((t) => t.id === tagId);
-    const members = (props || []).map((p) => p.name).filter((n) => ((propTags || {})[n] || []).includes(tagId));
+  // まとめ表示：①検索中（一致した部屋を全部重ねる）② calProp が "g:<tagId>"（タグ） のとき
+  // どちらも「複数部屋を1枚のカレンダーに並べて運用状況を見る」ビュー。
+  const isTagGroup = (calProp || "").startsWith("g:");
+  if (searchActive || isTagGroup) {
+    let members, titleNode;
+    if (searchActive) {
+      // props は既に検索で絞り込み済み（タイムライン順）。それをそのまま並べる。
+      members = (props || []).map((p) => p.name);
+      titleNode = <><b>🔎「{searchTerm}」</b>　<span className="cal-sub">{members.length}室をまとめて表示</span></>;
+    } else {
+      const tagId = calProp.slice(2);
+      const groupTag = (tags || []).find((t) => t.id === tagId);
+      members = (props || []).map((p) => p.name).filter((n) => ((propTags || {})[n] || []).includes(tagId));
+      titleNode = <><b>◆ {groupTag ? groupTag.name : "グループ"}</b>　<span className="cal-sub">{members.length}室・各日の埋まり部屋を表示</span></>;
+    }
     const mset = new Set(members);
     const gres = (rows || []).filter((r) => mset.has(r.property_name));
     // 棟（物件名の最後のスペースより前）ごとに自動で色分け
@@ -973,9 +983,12 @@ function CalendarView({ rows, props, propTags, tags, cleanings, checks, calProp,
     const heads = [...new Set(members.map(headOf))].sort();
     const colorForHead = (h) => GPAL[Math.max(0, heads.indexOf(h)) % GPAL.length];
     const colorOf = (name) => colorForHead(headOf(name));
+    if (members.length === 0) {
+      return <div className="cal"><div className="cal-title">{titleNode}</div><div className="empty">一致する物件がありません。検索語を確認してください。</div></div>;
+    }
     return (
       <div className="cal">
-        <div className="cal-title"><b>◆ {groupTag ? groupTag.name : "グループ"}</b>　<span className="cal-sub">{members.length}室・各日の埋まり部屋を表示</span></div>
+        <div className="cal-title">{titleNode}</div>
         {heads.length > 1 && (
           <div className="glegend">
             {heads.map((h) => <span key={h} className="gleg"><span className="gsw" style={{ background: colorForHead(h) }} />{h}</span>)}
