@@ -1025,12 +1025,14 @@ function MonthGridGroup({ y, m, gres, colorOf, order, onSel, todayStr }) {
       const coInWeek = coCol >= 0;
       let leftCol, rightCol, roundL, roundR, label;
       if (s >= 0) {
-        leftCol = ciInWeek ? s + 0.12 : s;
-        rightCol = coInWeek ? (coCol + 0.28) : (e + 1);
+        // チェックインは午後寄り(0.55)、チェックアウトは午前寄り(0.2)に。
+        // → 同日turnover（CO=IN）は明確な隙間、本当の重なり（ダブルブッキング）ははっきり重なって見える。
+        leftCol = ciInWeek ? s + 0.55 : s;
+        rightCol = coInWeek ? (coCol + 0.2) : (e + 1);
         roundL = ciInWeek; roundR = coInWeek;
         label = (r.parking ? "🚗 " : "") + r.property_name;   // 週明けに繋がるバーにも物件名を出す
       } else if (coInWeek) {
-        leftCol = coCol; rightCol = coCol + 0.28; roundL = false; roundR = true; label = "";
+        leftCol = coCol; rightCol = coCol + 0.2; roundL = false; roundR = true; label = "";
       } else return;
       raw.push({ r, block, leftCol, rightCol, roundL, roundR, label,
         bg: block ? "#EEF1F5" : (colorOf ? colorOf(r.property_name) : "#2563EB"),
