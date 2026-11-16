@@ -74,22 +74,39 @@ export async function runSync() {
       }));
       await tx`insert into reservations ${tx(payload)}`;
     }
-    // 直前予約の取りこぼしを補完（既存に無いものだけ追加）
+    // 直前（直近31日の過去）予約の反映：従来の「無いものだけ追加」から「置換」に変更し、
+    // 延長・変更で旧版が残り重なっていく蓄積を防ぐ。※未来予約の削除ロジックには触れない。
+    //  - 予約(booking): 同一(物件・チェックイン・サイト)の過去版を消して現版に更新
+    //  - Airbnbのブロック: 同一物件で重なる過去ブロックを消して現版に（シフトした予約不可枠の蓄積を防ぐ）
+    //  - Bookingのブロック(長期): 保守的に、未存在のときだけ追加（実予約の可能性があるため消さない）
     if (recentCurrent.length && okProps.length) {
       const existing = await tx`
         select property_name, to_char(check_in,'YYYY-MM-DD') as ci, to_char(check_out,'YYYY-MM-DD') as co
         from reservations
         where check_in <= ${today}::date and check_in >= ${floor}::date and property_name in ${tx(okProps)}`;
       const seen = new Set(existing.map((x) => `${x.property_name}|${x.ci}|${x.co}`));
-      const toAdd = recentCurrent.filter((r) => !seen.has(`${r.propertyName}|${r.checkIn.toISOString().slice(0,10)}|${r.checkOut.toISOString().slice(0,10)}`));
-      if (toAdd.length) {
-        const payload2 = toAdd.map((r) => ({
+      for (const r of recentCurrent) {
+        const ci = r.checkIn.toISOString().slice(0, 10);
+        const co = r.checkOut.toISOString().slice(0, 10);
+        if (r.type === "block") {
+          if (r.platform === "airbnb") {
+            await tx`delete from reservations where property_name = ${r.propertyName}
+                     and type = 'block' and platform = 'airbnb'
+                     and check_in <= ${today}::date and check_in < ${co}::date and check_out > ${ci}::date`;
+          } else if (seen.has(`${r.propertyName}|${ci}|${co}`)) {
+            continue;   // Bookingの長期ブロックは既存があれば触らない
+          }
+        } else {
+          await tx`delete from reservations where property_name = ${r.propertyName}
+                   and platform = ${r.platform} and type = 'booking'
+                   and check_in = ${ci}::date and check_in <= ${today}::date`;
+        }
+        await tx`insert into reservations ${tx([{
           property_name: r.propertyName, area: r.area || "", platform: r.platform, type: r.type,
-          check_in: r.checkIn.toISOString().slice(0, 10), check_out: r.checkOut.toISOString().slice(0, 10),
-          nights: r.nights, res_code: r.resCode || null, res_url: r.resUrl || null, summary: r.summary || null,
-        }));
-        await tx`insert into reservations ${tx(payload2)}`;
-        addedLate = toAdd.length;
+          check_in: ci, check_out: co, nights: r.nights,
+          res_code: r.resCode || null, res_url: r.resUrl || null, summary: r.summary || null,
+        }])}`;
+        addedLate++;
       }
     }
   });
