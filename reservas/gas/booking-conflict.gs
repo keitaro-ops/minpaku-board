@@ -7,12 +7,11 @@
  *       二重予約は iCal だけでは拾えません。予約メール＝「本物の予約」の確証なので、これを併用します。
  *
  * 設置: 既存の runInbound と同じ Apps Script プロジェクトにこのファイルを追加し、
- *       SECRET を既存（parking.gs）と同じ INBOUND_SECRET の値に書き換え、
  *       setupBookingTrigger を1回だけ実行する（初回は権限承認が必要）。
+ *       秘密鍵は既存の コード.gs の定数 INBOUND_SECRET をそのまま使う（ここでは再定義しない）。
  */
 const BK = {
   ENDPOINT: "https://minpaku-board.vercel.app/api/inbound",
-  SECRET: "ここに INBOUND_SECRET",                  // ← 既存の parking.gs と同じ値に
   NEW_QUERY: 'subject:("新しい予約がありました") newer_than:3d',
   CANCEL_QUERY: 'subject:(キャンセル) from:booking newer_than:3d',
 };
@@ -29,7 +28,7 @@ function runBookingSync() {
     const p = parseBookingNew_(msg.getSubject(), msg.getPlainBody());
     done[id] = now;
     if (!p) return;
-    const ok = post_({ kind: "booking_new", message_id: "bk:" + id, res_id: p.res_id, hotel_id: p.hotel_id, check_in: p.check_in, listing: p.listing });
+    const ok = bkPost_({ kind: "booking_new", message_id: "bk:" + id, res_id: p.res_id, hotel_id: p.hotel_id, check_in: p.check_in, listing: p.listing });
     if (!ok) delete done[id];   // 失敗時は次回再試行
   }));
 
@@ -40,7 +39,7 @@ function runBookingSync() {
     const body = msg.getPlainBody();
     const resId = (body.match(/res_id=(\d+)/) || body.match(/(\d{8,})/) || msg.getSubject().match(/(\d{8,})/) || [])[1];
     done[k] = now;
-    if (resId) post_({ kind: "booking_cancel", message_id: "bkc:" + msg.getId(), res_number: resId });
+    if (resId) bkPost_({ kind: "booking_cancel", message_id: "bkc:" + msg.getId(), res_number: resId });
   }));
 
   // 7日より古い処理済みIDは捨てる
@@ -62,8 +61,8 @@ function parseBookingNew_(subject, body) {
   return { res_id: res_id, hotel_id: hotel_id, check_in: check_in, listing: listing };
 }
 
-function post_(payload) {
-  payload.secret = BK.SECRET;
+function bkPost_(payload) {
+  payload.secret = INBOUND_SECRET;
   try {
     const res = UrlFetchApp.fetch(BK.ENDPOINT, { method: "post", contentType: "application/json", muteHttpExceptions: true, payload: JSON.stringify(payload) });
     console.log(payload.kind, payload.res_id || payload.res_number, res.getResponseCode(), res.getContentText().slice(0, 120));
