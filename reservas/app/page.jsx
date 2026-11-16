@@ -485,6 +485,18 @@ export default function Dashboard() {
     return list;
   }, [baseProps, order, groupByTag, propTags, tags, viewerHidden, q, propSearch]);
 
+  // カレンダーで実際に表示する対象。検索で選択中の物件が絞り込まれて消えたら、
+  // 絞り込み後リストの先頭にフォールバック（selectの見た目と描画内容のズレを防ぐ）
+  const calPropEff = useMemo(() => {
+    if ((calProp || "").startsWith("g:")) {
+      const tid = calProp.slice(2);
+      if ((tags || []).some((t) => t.id === tid)) return calProp;
+    } else if (calProp && props.some((p) => p.name === calProp)) {
+      return calProp;
+    }
+    return (props[0] && props[0].name) || "";
+  }, [calProp, props, tags]);
+
   const alertLimit = useMemo(() => new Date(today.getTime() + 5 * DAY_MS), [today]);
   const isAlert = (r) => r.type === "booking" && !r.info_submitted && r.ci >= today && r.ci <= alertLimit;
 
@@ -710,7 +722,7 @@ export default function Dashboard() {
             )}
             {view === "calendar" && (
               <div className="nav">
-                <select className="cal-sel" value={calProp} onChange={(e) => setCalProp(e.target.value)}>
+                <select className="cal-sel" value={calPropEff} onChange={(e) => setCalProp(e.target.value)}>
                   <optgroup label="物件">
                     {props.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
                   </optgroup>
@@ -739,8 +751,8 @@ export default function Dashboard() {
               onEditCleaning={canCleanEdit ? ((c) => setCleanSel({ ...c })) : null}
               onNameClick={(p) => setPropModal({ name: p.name, area: p.area })} />
           ) : view === "calendar" ? (
-            <CalendarView rows={data || []} props={props} propTags={propTags} tags={tags} cleanings={cleaningVisible ? cleanings : []} checks={cleaningVisible ? checks : []}
-              calProp={calProp || (props[0] && props[0].name) || ""} calMonth={calMonth}
+            <CalendarView rows={data || []} props={props} propTags={propTags} tags={tags} cleanings={cleaningVisible ? cleanings : []} checks={cleaningVisible ? checks : []} isMobile={isMobile}
+              calProp={calPropEff} calMonth={calMonth}
               onSel={tapEnabled ? setSel : null} canClean={canCleanEdit}
               onAddCleaning={canCleanEdit ? ((pn, date) => setCleanSel({ property_name: pn, date, kind: "inhouse", memo: "" })) : null}
               onEditCleaning={canCleanEdit ? ((c) => setCleanSel({ ...c })) : null} />
@@ -938,7 +950,7 @@ function ListView({ rows, sort, onSort, onSel }) {
   );
 }
 
-function CalendarView({ rows, props, propTags, tags, cleanings, checks, calProp, calMonth, onSel, canClean, onAddCleaning, onEditCleaning }) {
+function CalendarView({ rows, props, propTags, tags, cleanings, checks, calProp, calMonth, onSel, canClean, onAddCleaning, onEditCleaning, isMobile }) {
   const todayStr = isoDate(startOfDay(new Date()));
   // calMonth を先頭に、縦に連続表示（先1年分）
   const months = [];
@@ -995,7 +1007,7 @@ function CalendarView({ rows, props, propTags, tags, cleanings, checks, calProp,
       {months.map((mo, idx) => (
         <MonthGrid key={mo.getFullYear() + "-" + mo.getMonth()} y={mo.getFullYear()} m={mo.getMonth()}
           resv={resv} cleans={cleans} checkSet={checkSet} onSel={onSel} onAddCleaning={onAddCleaning} onEditCleaning={onEditCleaning}
-          propName={propName} todayStr={todayStr} rootRef={null} />
+          propName={propName} todayStr={todayStr} rootRef={null} showProp={isMobile} />
       ))}
       <div className="cal-hint">予約バーをタップで詳細／空き日をタップで清掃追加（権限により異なります）。縦スクロールで前後の月が見られます。</div>
     </div>
@@ -1087,7 +1099,7 @@ function MonthGridGroup({ y, m, gres, colorOf, order, onSel, todayStr }) {
   );
 }
 
-function MonthGrid({ y, m, resv, cleans, checkSet, onSel, onAddCleaning, onEditCleaning, propName, todayStr, rootRef }) {
+function MonthGrid({ y, m, resv, cleans, checkSet, onSel, onAddCleaning, onEditCleaning, propName, todayStr, rootRef, showProp }) {
   const daysInMonth = new Date(y, m + 1, 0).getDate();
   const startWd = new Date(y, m, 1).getDay();
   const weeks = [];
@@ -1135,7 +1147,7 @@ function MonthGrid({ y, m, resv, cleans, checkSet, onSel, onAddCleaning, onEditC
 
   return (
     <div className="cmonth" ref={rootRef}>
-      <div className="cmonth-h">{y}年 {m + 1}月</div>
+      <div className="cmonth-h">{y}年 {m + 1}月{showProp && propName ? <span className="cmonth-prop">{propName}</span> : null}</div>
       {weeks.map((week, wi) => (
         <div className="cweek" key={wi}>
           {week.map((d, c) => {
@@ -1682,6 +1694,7 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .cal-wd.sun { color:#DC2626; } .cal-wd.sat { color:#2563EB; }
 .cmonth { margin-top:14px; background:#F3F5F8; border-radius:14px; padding:6px 6px 3px; }
 .cmonth-h { font-size:14px; font-weight:700; color:#10151D; margin:4px 6px 8px; }
+.cmonth-prop { margin-left:8px; font-size:12px; font-weight:600; color:#2563EB; background:#EFF4FF; border:1px solid #D6E2FF; border-radius:999px; padding:1px 8px; vertical-align:middle; }
 /* トラックは等幅のまま（gapなし）→ 帯の位置は保つ。セルは margin でカード風の余白を作る */
 .cweek { display:grid; grid-template-columns:repeat(7,1fr); position:relative; }
 .ccell { min-height:120px; margin:3px; background:#fff; border:1px solid #E6E9EE; border-radius:10px; padding:4px 6px; cursor:pointer; position:relative; box-shadow:0 1px 2px rgba(16,24,40,.04); }
