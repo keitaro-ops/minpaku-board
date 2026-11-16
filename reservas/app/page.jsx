@@ -1003,42 +1003,84 @@ function CalendarView({ rows, props, propTags, tags, cleanings, checks, calProp,
 function MonthGridGroup({ y, m, gres, colorOf, onSel, todayStr }) {
   const daysInMonth = new Date(y, m + 1, 0).getDate();
   const startWd = new Date(y, m, 1).getDay();
-  const cells = new Array(startWd).fill(0);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-  while (cells.length % 7) cells.push(0);
+  const weeks = [];
+  let wk = new Array(startWd).fill(0);
+  for (let d = 1; d <= daysInMonth; d++) { wk.push(d); if (wk.length === 7) { weeks.push(wk); wk = []; } }
+  if (wk.length) { while (wk.length < 7) wk.push(0); weeks.push(wk); }
   const dstr = (d) => isoDate(new Date(y, m, d));
-  // 日付 → その日に泊まっている予約（ci <= day < co）
-  const occOf = (ds) => gres.filter((r) => isoDate(r.ci) <= ds && ds < isoDate(r.co))
-    .sort((a, b) => a.property_name.localeCompare(b.property_name));
 
+  // 単一物件カレンダーと同じ「連泊で日付をまたぐ連続バー」。複数物件はレーン分けして縦に積む。
+  function bandsOf(week) {
+    const raw = [];
+    gres.forEach((r) => {
+      let s = -1, e = -1;
+      for (let c = 0; c < 7; c++) {
+        const d = week[c]; if (!d) continue;
+        const ds = dstr(d);
+        if (isoDate(r.ci) <= ds && ds < isoDate(r.co)) { if (s < 0) s = c; e = c; }
+      }
+      const block = r.type === "block";
+      const ciInWeek = week.some((d) => d && dstr(d) === isoDate(r.ci));
+      const coCol = week.findIndex((d) => d && dstr(d) === isoDate(r.co));
+      const coInWeek = coCol >= 0;
+      let leftCol, rightCol, roundL, roundR, label;
+      if (s >= 0) {
+        leftCol = ciInWeek ? s + 0.12 : s;
+        rightCol = coInWeek ? (coCol + 0.28) : (e + 1);
+        roundL = ciInWeek; roundR = coInWeek;
+        label = ciInWeek ? (r.parking ? "🚗 " : "") + r.property_name : "";
+      } else if (coInWeek) {
+        leftCol = coCol; rightCol = coCol + 0.28; roundL = false; roundR = true; label = "";
+      } else return;
+      raw.push({ r, block, leftCol, rightCol, roundL, roundR, label,
+        bg: block ? "#EEF1F5" : (colorOf ? colorOf(r.property_name) : "#2563EB"),
+        ink: block ? "#6B7280" : "#fff" });
+    });
+    // レーン割り当て（横に重ならない帯は同じ行、重なるものは別行）
+    raw.sort((a, b) => a.leftCol - b.leftCol || a.r.property_name.localeCompare(b.r.property_name));
+    const laneRight = [];
+    raw.forEach((b) => {
+      let lane = 0;
+      while (lane < laneRight.length && laneRight[lane] > b.leftCol + 0.001) lane++;
+      b.lane = lane; laneRight[lane] = b.rightCol;
+    });
+    return { bands: raw, lanes: Math.max(1, laneRight.length) };
+  }
+
+  const BAR = 19, GAP = 3, HEAD = 22;
   return (
     <div className="cmonth">
-      <div className="cmonth-h">{y}年{m + 1}月</div>
-      <div className="gweeks">
-        {cells.map((d, i) => {
-          const ds = d ? dstr(d) : "";
-          const hol = d ? isJpHoliday(ds) : false;
-          const wd = i % 7;
-          const occ = d ? occOf(ds) : [];
-          return (
-            <div key={i} className={"gcell" + (!d ? " empty" : "") + (d && ds === todayStr ? " today" : "")}>
-              {d ? <span className={"cnum" + (hol || wd === 0 ? " sun" : wd === 6 ? " sat" : "")}>{d}</span> : null}
-              <div className="gchips">
-                {occ.map((r, k) => {
-                  const block = r.type === "block";
-                  return (
-                    <span key={k} className="gchip" title={`${r.property_name}  ${isoDate(r.ci)}〜${isoDate(r.co)}${r.guest_name ? " / " + r.guest_name : ""}`}
-                      style={{ background: block ? "#EEF1F5" : (colorOf ? colorOf(r.property_name) : "#2563EB"), color: block ? "#6B7280" : "#fff", borderColor: block ? "#D7DCE3" : "transparent" }}
-                      onClick={() => onSel && !block && onSel(r)}>
-                      {r.parking ? "🚗 " : ""}{r.property_name}
-                    </span>
-                  );
-                })}
+      <div className="cmonth-h">{y}年 {m + 1}月</div>
+      {weeks.map((week, wi) => {
+        const { bands, lanes } = bandsOf(week);
+        const cellH = HEAD + lanes * (BAR + GAP) + 4;
+        return (
+          <div className="cweek" key={wi}>
+            {week.map((d, c) => {
+              const ds = d ? dstr(d) : "";
+              const hol = d ? isJpHoliday(ds) : false;
+              return (
+                <div key={c} className={"ccell gcell2" + (!d ? " empty" : "") + (d && ds === todayStr ? " today" : "")} style={{ minHeight: cellH }}>
+                  {d ? <span className={"cnum" + (hol || c === 0 ? " sun" : c === 6 ? " sat" : "")}>{d}</span> : null}
+                </div>
+              );
+            })}
+            {bands.map((b, bi) => (
+              <div key={bi} className="cband" title={`${b.r.property_name}  ${isoDate(b.r.ci)}〜${isoDate(b.r.co)}${b.r.guest_name ? " / " + b.r.guest_name : ""}`}
+                style={{ top: HEAD + b.lane * (BAR + GAP), height: BAR, lineHeight: (BAR - 2) + "px",
+                  left: `calc(${(b.leftCol / 7) * 100}% + ${b.roundL ? 1 : 0}px)`,
+                  width: `calc(${((b.rightCol - b.leftCol) / 7) * 100}% - ${(b.roundL ? 1 : 0) + (b.roundR ? 1 : 0)}px)`,
+                  boxSizing: "border-box", background: b.bg, color: b.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  border: b.block ? "1px dashed #C7CDD6" : "1px solid rgba(0,0,0,.35)",
+                  borderTopLeftRadius: b.roundL ? 999 : 0, borderBottomLeftRadius: b.roundL ? 999 : 0,
+                  borderTopRightRadius: b.roundR ? 999 : 0, borderBottomRightRadius: b.roundR ? 999 : 0 }}
+                onClick={(e) => { e.stopPropagation(); if (!b.block && onSel) onSel(b.r); }}>
+                {b.label}
               </div>
-            </div>
-          );
-        })}
-      </div>
+            ))}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1651,6 +1693,7 @@ h1,h2 { font-family:'Space Grotesk',sans-serif; margin:0; }
 .glegend { display:flex; flex-wrap:wrap; gap:6px 14px; margin:2px 2px 10px; }
 .gleg { display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:700; color:#334155; }
 .gsw { width:12px; height:12px; border-radius:3px; display:inline-block; }
+.gcell2 { cursor:default; }
 .gweeks { display:grid; grid-template-columns:repeat(7,1fr); }
 .gcell { min-height:92px; margin:3px; background:#fff; border:1px solid #E6E9EE; border-radius:10px; padding:4px 5px; position:relative; box-shadow:0 1px 2px rgba(16,24,40,.04); }
 .gcell.empty { background:transparent; border:1px dashed #DDE1E7; box-shadow:none; }
