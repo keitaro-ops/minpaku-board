@@ -13,7 +13,9 @@
 const BK = {
   ENDPOINT: "https://minpaku-board.vercel.app/api/inbound",
   NEW_QUERY: 'subject:("新しい予約がありました") newer_than:3d',
-  CANCEL_QUERY: 'subject:(キャンセル) from:booking newer_than:3d',
+  // キャンセルメールは Booking から直接ではなく転送（例: minpaku2@taft.co.jp）で届くため
+  // from: では絞らない。件名「予約のキャンセルがありました」で拾う。少し広めの窓＋done重複ガード。
+  CANCEL_QUERY: 'subject:("予約のキャンセルがありました") newer_than:14d',
 };
 
 function runBookingSync() {
@@ -42,8 +44,8 @@ function runBookingSync() {
     if (resId) bkPost_({ kind: "booking_cancel", message_id: "bkc:" + msg.getId(), res_number: resId });
   }));
 
-  // 7日より古い処理済みIDは捨てる
-  Object.keys(done).forEach((kk) => { if (now - done[kk] > 7 * 864e5) delete done[kk]; });
+  // 32日より古い処理済みIDは捨てる（CANCELの窓14日より長くして、同じメールの二重処理を防ぐ）
+  Object.keys(done).forEach((kk) => { if (now - done[kk] > 32 * 864e5) delete done[kk]; });
   props.setProperty("bk_done", JSON.stringify(done));
 }
 

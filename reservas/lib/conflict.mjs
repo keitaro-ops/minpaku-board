@@ -43,7 +43,14 @@ export async function alertConflictChat(sql, property_name, A, B, overlap, note)
   }
 }
 
-// 1件の衝突を記録。新規（未登録 or 以前resolved）の時だけ通知する。戻り値 { key, newlyAlerted }。
+// 通知可能な時間帯か（JST 9:00–20:00）。20:00以降・翌9:00前は保留し、9時以降の実行で送る。
+export function isNotifyHourJST(d = new Date()) {
+  const h = (d.getUTCHours() + 9) % 24;   // UTC→JST
+  return h >= 9 && h < 20;
+}
+
+// 1件の衝突を記録（ここでは通知しない。送信は flushPendingAlerts が時間帯を見て行う）。
+// 再出現（以前 resolved）時は notified_chat を false に戻し、再通知の対象にする。
 export async function recordConflict(sql, { property_name, A, B, overlap, note }) {
   const key = conflictKey(property_name, A, B);
   const [row] = await sql`select resolved from booking_conflicts where conflict_key = ${key}`;
@@ -52,12 +59,32 @@ export async function recordConflict(sql, { property_name, A, B, overlap, note }
   await sql`
     insert into booking_conflicts (conflict_key, property_name, detail, detected_at, notified_chat, resolved, resolved_at)
     values (${key}, ${property_name}, ${detail}, now(), false, false, null)
-    on conflict (conflict_key) do update set resolved = false, resolved_at = null, detail = excluded.detail`;
-  if (isNew) {
-    await alertConflictChat(sql, property_name, A, B, overlap, note);
-    await sql`update booking_conflicts set notified_chat = true, detected_at = now() where conflict_key = ${key}`;
+    on conflict (conflict_key) do update set
+      resolved = false, resolved_at = null, detail = excluded.detail,
+      notified_chat = case when booking_conflicts.resolved then false else booking_conflicts.notified_chat end`;
+  return { key, isNew };
+}
+
+// 未通知(notified_chat=false)かつ未解決の衝突を、通知可能時間帯にまとめて送る。
+// currentKeys（今回の実行で現に検知されたキー集合）に含まれるものだけ送るので、
+// 夜間に出て自己解決した衝突は送られない。戻り値は送信件数。
+export async function flushPendingAlerts(sql, currentKeys) {
+  if (!isNotifyHourJST()) return 0;
+  let pend = [];
+  try {
+    pend = await sql`select conflict_key, property_name, detail from booking_conflicts where resolved = false and notified_chat = false`;
+  } catch { return 0; }
+  let sent = 0;
+  for (const row of pend) {
+    if (currentKeys && !currentKeys.has(row.conflict_key)) continue;
+    let d = {};
+    try { d = JSON.parse(row.detail || "{}"); } catch {}
+    if (!d.a || !d.b || !d.overlap) continue;
+    await alertConflictChat(sql, row.property_name, d.a, d.b, d.overlap, d.note || "");
+    await sql`update booking_conflicts set notified_chat = true, detected_at = now() where conflict_key = ${row.conflict_key}`;
+    sent++;
   }
-  return { key, newlyAlerted: isNew };
+  return sent;
 }
 
 // Bookingの予約メール（email_bookings）を使って、完全同一日程を含む二重予約を割り出す。

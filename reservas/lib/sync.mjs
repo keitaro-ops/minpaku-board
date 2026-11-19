@@ -1,7 +1,7 @@
 import { db } from "./db.mjs";
 import { parseICS, mergeFeeds } from "./ical.mjs";
 import { ensureColumn, clearStuckParkingDDL } from "./parking.mjs";
-import { ensureConflictTable, recordConflict, detectEmailConflicts } from "./conflict.mjs";
+import { ensureConflictTable, recordConflict, detectEmailConflicts, flushPendingAlerts } from "./conflict.mjs";
 
 // 案A: チェックインが過ぎた予約（check_in < 今日 = 滞在開始済み）はDBに確定保存して残す。
 // これから始まる予約（check_in >= 今日）だけ iCal 最新で入れ替える。
@@ -159,7 +159,9 @@ async function runConflictDetection(sql, today) {
   const current = new Set();
   let alerted = 0;
 
-  // 1) iCal 検知（両方 booking・夜が重なる・重なりが今日以降）
+  // 1) iCal 検知（Airbnb↔Booking のクロスのみ・夜が重なる・重なりが今日以降）
+  //    同一サイト同士(booking×booking 等)の重なりは、日程変更やキャンセルで残った
+  //    古い行による“幽霊”がほとんど。連動対象は Airbnb↔Booking なので cross のみ検知する。
   const pairs = await sql`
     select a.property_name,
            a.platform as a_plat, to_char(a.check_in,'YYYY-MM-DD') as a_ci, to_char(a.check_out,'YYYY-MM-DD') as a_co,
@@ -170,6 +172,7 @@ async function runConflictDetection(sql, today) {
     join reservations b
       on a.property_name = b.property_name and a.id < b.id
     where a.type = 'booking' and b.type = 'booking'
+      and a.platform <> b.platform
       and a.check_in < b.check_out and b.check_in < a.check_out
       and least(a.check_out, b.check_out) > ${today}::date`;
   for (const p of pairs) {
@@ -179,14 +182,14 @@ async function runConflictDetection(sql, today) {
       B: { platform: p.b_plat, ci: p.b_ci, co: p.b_co },
       overlap: { ci: p.ov_ci, co: p.ov_co },
     });
-    current.add(r.key); if (r.newlyAlerted) alerted++;
+    current.add(r.key);
   }
 
   // 2) メール照合検知（Booking予約メール × Airbnb予約）
   const emailConf = await detectEmailConflicts(sql, today);
   for (const c of emailConf) {
     const r = await recordConflict(sql, c);
-    current.add(r.key); if (r.newlyAlerted) alerted++;
+    current.add(r.key);
   }
 
   // 3) どちらの検知にも出てこなくなったものは resolved（再発時に再通知できるように）
@@ -195,5 +198,9 @@ async function runConflictDetection(sql, today) {
     if (!current.has(o.conflict_key))
       await sql`update booking_conflicts set resolved = true, resolved_at = now() where conflict_key = ${o.conflict_key}`;
   }
+
+  // 4) 通知可能時間帯(JST 9:00–20:00)に、未通知の“現在も有効な”衝突だけ送信。
+  //    20時以降に出たものは保留され、翌9時以降の実行で送られる（夜間に自己解決したものは送らない）。
+  alerted = await flushPendingAlerts(sql, current);
   return alerted;
 }
